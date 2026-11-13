@@ -1,1 +1,2 @@
-rootProject.name = 'example'
+// Directory name is Tile-And-Object-Overlay. The RuneLite plugin id is tile-and-object-overlay.
+rootProject.name = 'tile-and-object-overlay'
