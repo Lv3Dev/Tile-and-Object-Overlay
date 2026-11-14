@@ -16,20 +16,8 @@ public class MarkerGroup
 	private boolean enabled;
 	private boolean collapsed;
 	private GroupKind kind;
-	/**
-	 * New marks of this group's kind are added here. Tiles and objects each
-	 * keep their own active group.
-	 */
 	private boolean active;
-	/**
-	 * Packed ARGB border for a tile group. Null uses each style's border.
-	 * Tiles in the group can still set their own.
-	 */
 	private Integer colour;
-	/**
-	 * Packed ARGB fill for a tile group. Null uses the group colour's
-	 * transparency when that is set, otherwise each style's fill.
-	 */
 	private Integer fillColour;
 
 	public MarkerGroup(String id, String name, boolean enabled, boolean collapsed)
