@@ -6,6 +6,7 @@ package com.tileoverlay;
 
 import com.google.inject.Provides;
 import com.tileoverlay.ui.TileOverlayPanel;
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -26,12 +27,14 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.KeyCode;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.PostMenuSort;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -73,6 +76,9 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 	private TileOverlayOverlay overlay;
 
 	@Inject
+	private TileMinimapOverlay minimapOverlay;
+
+	@Inject
 	private OverlayManager overlayManager;
 
 	@Inject
@@ -98,6 +104,9 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 
 	@Inject
 	private TileOverlayPanel panel;
+
+	@Inject
+	private ObjectLeftClick leftClick;
 
 	private final AtomicBoolean loaded = new AtomicBoolean();
 	private final AtomicInteger edits = new AtomicInteger();
@@ -142,6 +151,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		edits.set(0);
 		int sessionId = session.incrementAndGet();
 		overlayManager.add(overlay);
+		overlayManager.add(minimapOverlay);
 		keyManager.registerKeyListener(hotkeyListener);
 		panel.setListener(this);
 		icon = ImageUtil.loadImageResource(TileObjectMarkersPlugin.class, "icon.png");
@@ -170,6 +180,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		repository.setHighlightedObjects(Collections.emptySet());
 		keyManager.unregisterKeyListener(hotkeyListener);
 		overlayManager.remove(overlay);
+		overlayManager.remove(minimapOverlay);
 		panel.setListener(null);
 		removeSidebar();
 		if (loaded.get())
@@ -223,6 +234,11 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
+		if (ObjectLeftClick.SWAP_GROUP.equals(event.getGroup()))
+		{
+			leftClick.forgetSwap(event.getKey());
+			return;
+		}
 		if (!TileOverlayConfig.GROUP.equals(event.getGroup()))
 		{
 			return;
@@ -231,7 +247,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		{
 			refreshSidebar();
 		}
-		if (isPanelColour(event.getKey()))
+		if (isPanelColour(event.getKey()) || isObjectDefaultColour(event.getKey()))
 		{
 			SwingUtilities.invokeLater(panel::refreshColours);
 		}
@@ -242,6 +258,15 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		return "groupBorderColour".equals(key)
 			|| "tileListTextColour".equals(key)
 			|| "objectListTextColour".equals(key);
+	}
+
+	private static boolean isObjectDefaultColour(String key)
+	{
+		return "objectOutlineColour".equals(key)
+			|| "objectHullColour".equals(key)
+			|| "objectTileColour".equals(key)
+			|| "objectClickboxColour".equals(key)
+			|| "objectTextColour".equals(key);
 	}
 
 	@Subscribe
@@ -261,6 +286,21 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		{
 			changed();
 		}
+	}
+
+	/**
+	 * Runs after menu entry swapper. The closed menu is the left-click the game
+	 * will actually use, including a swapped or rewritten option. Shift is the
+	 * shift-click menu, so it is ignored.
+	 */
+	@Subscribe(priority = -1000f)
+	public void onPostMenuSort(PostMenuSort event)
+	{
+		if (client.isMenuOpen() || client.isKeyPressed(KeyCode.KC_SHIFT))
+		{
+			return;
+		}
+		leftClick.observe(client.getMenu().getMenuEntries());
 	}
 
 	@Subscribe
@@ -285,11 +325,11 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		}
 	}
 
-	private boolean addTileEntries(MenuEntry walk)
+	private void addTileEntries(MenuEntry walk)
 	{
-		if (client.getMenu() != null && tileOptionPresent(client.getMenu().getMenuEntries()))
+		if (tileOptionPresent(client.getMenu().getMenuEntries()))
 		{
-			return false;
+			return;
 		}
 
 		WorldPoint hovered = overlay.tileAtCursor();
@@ -298,7 +338,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 			: overlay.tileFromMenu(walk.getWorldViewId(), walk.getParam0(), walk.getParam1());
 		if (worldPoint == null)
 		{
-			return false;
+			return;
 		}
 
 		if (overlay.getPendingStart() != null)
@@ -306,7 +346,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 			addEntry("Cancel", menuEntry -> cancelPending());
 			String fill = overlay.getPendingStyle() == MarkerStyle.BORDER ? "Fill border" : "Fill region";
 			addEntry(fill, menuEntry -> finishArea(worldPoint));
-			return true;
+			return;
 		}
 
 		TileMarker existing = repository.get(worldPoint);
@@ -341,7 +381,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 				changed();
 			});
 		}
-		return true;
 	}
 
 	private void addObjectEntries(MenuEntry entry)
@@ -672,9 +711,151 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		}
 		clientThread.invoke(() ->
 		{
-			String resolved = label == null ? "" : label.trim();
-			repository.setLabel(location.toWorldPoint(), resolved.isEmpty() ? null : resolved);
+			repository.setLabel(location.toWorldPoint(), tileLabelText(label));
 			changed();
+		});
+	}
+
+	@Override
+	public void previewTileLabel(MarkerLocation location, String label)
+	{
+		if (location == null)
+		{
+			return;
+		}
+		clientThread.invoke(() -> repository.setLabel(location.toWorldPoint(), tileLabelText(label)));
+	}
+
+	private static String tileLabelText(String label)
+	{
+		String resolved = label == null ? "" : label.trim();
+		return resolved.isEmpty() ? null : resolved;
+	}
+
+	@Override
+	public void setTileCorners(MarkerLocation location, Boolean cornersOnly)
+	{
+		if (location == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setTileCorners(location, cornersOnly);
+			changed();
+		});
+	}
+
+	@Override
+	public void setTileMerge(MarkerLocation location, Boolean mergeBorders)
+	{
+		if (location == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setTileMerge(location, mergeBorders);
+			changed();
+		});
+	}
+
+	@Override
+	public void setGroupTileCorners(String groupId, Boolean cornersOnly)
+	{
+		if (groupId == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setGroupTileCorners(groupId, cornersOnly);
+			changed();
+		});
+	}
+
+	@Override
+	public void setGroupTileMerge(String groupId, Boolean mergeBorders)
+	{
+		if (groupId == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setGroupTileMerge(groupId, mergeBorders);
+			changed();
+		});
+	}
+
+	@Override
+	public void setTileColour(MarkerLocation location, TileColourSlot slot, Color colour)
+	{
+		if (location == null || slot == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setTileColour(location, slot, colour == null ? null : colour.getRGB());
+			changed();
+		});
+	}
+
+	@Override
+	public void setGroupColour(String groupId, Color colour)
+	{
+		if (groupId == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setGroupColour(groupId, colour == null ? null : colour.getRGB());
+			changed();
+		});
+	}
+
+	@Override
+	public void setGroupFillColour(String groupId, Color colour)
+	{
+		if (groupId == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			repository.setGroupFillColour(groupId, colour == null ? null : colour.getRGB());
+			changed();
+		});
+	}
+
+	@Override
+	public String copyGroup(String id)
+	{
+		GroupShare.Bundle bundle = repository.shareBundle(id);
+		if (bundle == null)
+		{
+			return null;
+		}
+		clientThread.invoke(() -> chat(bundle.getNotice()));
+		return bundle.getText();
+	}
+
+	@Override
+	public void importGroup(GroupKind kind, String text, Consumer<String> done)
+	{
+		clientThread.invoke(() ->
+		{
+			GroupShare.Result result = repository.importShare(kind, text);
+			if (result.isChanged())
+			{
+				changed();
+			}
+			if (done != null)
+			{
+				SwingUtilities.invokeLater(() -> done.accept(result.getMessage()));
+			}
 		});
 	}
 
@@ -686,6 +867,12 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 			repository.setObjectLabel(ref, label);
 			changed();
 		});
+	}
+
+	@Override
+	public void previewObjectLabel(ObjectRef ref, String label)
+	{
+		clientThread.invoke(() -> repository.setObjectLabel(ref, label));
 	}
 
 	@Override
@@ -724,6 +911,16 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		clientThread.invoke(() ->
 		{
 			repository.setObjectShowClickbox(ref, show);
+			changed();
+		});
+	}
+
+	@Override
+	public void setObjectColour(ObjectRef ref, ObjectColourSlot slot, Color colour)
+	{
+		clientThread.invoke(() ->
+		{
+			repository.setObjectColour(ref, slot, colour == null ? null : colour.getRGB());
 			changed();
 		});
 	}

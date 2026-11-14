@@ -49,6 +49,8 @@ public class MarkerFileTest
 		marker.setShowLeftClick(true);
 		marker.setShowHull(true);
 		marker.setShowClickbox(true);
+		marker.setOutlineColour(0xFF102030);
+		marker.setTextColour(0x80FFFFFF);
 		marker.setGroupId("obj");
 		file.getObjects().add(marker);
 		Assert.assertTrue(marker.isShowOutline());
@@ -66,6 +68,9 @@ public class MarkerFileTest
 		Assert.assertTrue(loaded.getObjects().get(0).isShowHull());
 		Assert.assertFalse(loaded.getObjects().get(0).isShowTile());
 		Assert.assertTrue(loaded.getObjects().get(0).isShowClickbox());
+		Assert.assertEquals(Integer.valueOf(0xFF102030), loaded.getObjects().get(0).getOutlineColour());
+		Assert.assertEquals(Integer.valueOf(0x80FFFFFF), loaded.getObjects().get(0).getTextColour());
+		Assert.assertNull(loaded.getObjects().get(0).getHullColour());
 		Assert.assertEquals("Rocks", loaded.getObjects().get(0).getName());
 		Assert.assertEquals(1234, loaded.getObjects().get(0).getObjectId());
 		Assert.assertEquals(marker.ref(), loaded.getObjects().get(0).ref());
@@ -113,5 +118,37 @@ public class MarkerFileTest
 		Assert.assertFalse(marker.isShowHull());
 		Assert.assertFalse(marker.isShowTile());
 		Assert.assertFalse(marker.isShowClickbox());
+	}
+
+	@Test
+	public void cornerAndMergeOverridesAreOptional()
+	{
+		String json = "{\"version\":3,\"markers\":[{\"regionId\":12850,\"regionX\":0,\"regionY\":0,\"plane\":0,\"style\":\"TILE\"}]}";
+		MarkerFile loaded = new Gson().fromJson(json, MarkerFile.class);
+		Assert.assertEquals(3, loaded.getVersion());
+		Assert.assertNull(loaded.getMarkers().get(0).getCornersOnly());
+		Assert.assertNull(loaded.getMarkers().get(0).getMergeBorders());
+		Assert.assertNull(loaded.getMarkers().get(0).getBorderColour());
+		Assert.assertNull(loaded.getMarkers().get(0).getFillColour());
+		Assert.assertNull(loaded.getMarkers().get(0).getLabelColour());
+
+		loaded.getMarkers().get(0).setCornersOnly(Boolean.FALSE);
+		loaded.getMarkers().get(0).setMergeBorders(Boolean.TRUE);
+		loaded.getMarkers().get(0).setBorderColour(0xFF112233);
+		loaded.getMarkers().get(0).setLabelColour(0xFFABCDEF);
+		loaded.getGroups().add(new MarkerGroup("id", "Home", true, false));
+		loaded.getGroups().get(0).setColour(0x80FEDCBA);
+		loaded.getGroups().get(0).setFillColour(0x40ABCDEF);
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		MarkerFile round = gson.fromJson(gson.toJson(loaded), MarkerFile.class);
+		Assert.assertEquals(3, round.getVersion());
+		Assert.assertEquals(MarkerFile.CURRENT_VERSION, new MarkerFile().getVersion());
+		Assert.assertEquals(Boolean.FALSE, round.getMarkers().get(0).getCornersOnly());
+		Assert.assertEquals(Boolean.TRUE, round.getMarkers().get(0).getMergeBorders());
+		Assert.assertEquals(Integer.valueOf(0xFF112233), round.getMarkers().get(0).getBorderColour());
+		Assert.assertNull(round.getMarkers().get(0).getFillColour());
+		Assert.assertEquals(Integer.valueOf(0xFFABCDEF), round.getMarkers().get(0).getLabelColour());
+		Assert.assertEquals(Integer.valueOf(0x80FEDCBA), round.getGroups().get(0).getColour());
+		Assert.assertEquals(Integer.valueOf(0x40ABCDEF), round.getGroups().get(0).getFillColour());
 	}
 }

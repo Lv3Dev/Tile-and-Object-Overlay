@@ -4,11 +4,6 @@
  */
 package com.tileoverlay;
 
-/**
- * Menu actions and scene objects do not always carry the same id.
- * A game-object option uses the base id. Examine, and some wall decorations,
- * use a transformed id from the object's impostor list.
- */
 final class ObjectIdentity
 {
 	private ObjectIdentity()

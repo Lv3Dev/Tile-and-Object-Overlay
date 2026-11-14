@@ -5,11 +5,15 @@
 package com.tileoverlay.ui;
 
 import com.tileoverlay.GroupKind;
+import com.tileoverlay.GroupShare;
+import com.tileoverlay.TileColourSlot;
 import com.tileoverlay.MarkerGroup;
 import com.tileoverlay.MarkerLocation;
+import com.tileoverlay.MarkerLooks;
 import com.tileoverlay.MarkerRepository;
 import com.tileoverlay.MarkerSnapshot;
 import com.tileoverlay.MarkerStyle;
+import com.tileoverlay.ObjectColourSlot;
 import com.tileoverlay.ObjectMarker;
 import com.tileoverlay.ObjectRef;
 import com.tileoverlay.MarkerSnapshot.ListFilter;
@@ -23,14 +27,24 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Cursor;
+import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.Polygon;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
+import java.awt.Window;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
@@ -56,6 +70,7 @@ import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -63,7 +78,11 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.Scrollable;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -71,6 +90,8 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.components.colorpicker.ColorPickerManager;
+import net.runelite.client.ui.components.colorpicker.RuneliteColorPicker;
 import net.runelite.client.util.ImageUtil;
 
 @Singleton
@@ -104,7 +125,39 @@ public class TileOverlayPanel extends PluginPanel
 
 		void setTileLabel(MarkerLocation location, String label);
 
+		/** Updates the drawn tile label without rebuilding the panel, so typing can show as it is entered. */
+		void previewTileLabel(MarkerLocation location, String label);
+
+		/** Null follows that style's Corners setting. */
+		void setTileCorners(MarkerLocation location, Boolean cornersOnly);
+
+		/** Null follows that style's Merge setting. */
+		void setTileMerge(MarkerLocation location, Boolean mergeBorders);
+
+		/** Null clears the override on every tile in the group. */
+		void setGroupTileCorners(String groupId, Boolean cornersOnly);
+
+		/** Null clears the override on every tile in the group. */
+		void setGroupTileMerge(String groupId, Boolean mergeBorders);
+
+		/** Null clears that slot and the tile follows the group colour, or the style setting. */
+		void setTileColour(MarkerLocation location, TileColourSlot slot, Color colour);
+
+		/** Tile groups only. Null clears the group border colour. */
+		void setGroupColour(String groupId, Color colour);
+
+		/** Tile groups only. Null clears the group fill colour. */
+		void setGroupFillColour(String groupId, Color colour);
+
+		/** Copies the group. Returns the clipboard text, or null when the group is gone. */
+		String copyGroup(String id);
+
+		void importGroup(GroupKind kind, String text, Consumer<String> done);
+
 		void setObjectLabel(ObjectRef ref, String label);
+
+		/** Updates the drawn label without rebuilding the panel, so typing can show as it is entered. */
+		void previewObjectLabel(ObjectRef ref, String label);
 
 		void setObjectShowOutline(ObjectRef ref, boolean show);
 
@@ -113,6 +166,8 @@ public class TileOverlayPanel extends PluginPanel
 		void setObjectShowTile(ObjectRef ref, boolean show);
 
 		void setObjectShowClickbox(ObjectRef ref, boolean show);
+
+		void setObjectColour(ObjectRef ref, ObjectColourSlot slot, Color colour);
 
 		void addNamedGroup(GroupKind kind, String name);
 
@@ -140,6 +195,7 @@ public class TileOverlayPanel extends PluginPanel
 	private static final Font TITLE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 12);
 	private static final Font UI_FONT = new Font(Font.SANS_SERIF, Font.PLAIN, 12);
 	private static final Font SMALL_FONT = new Font(Font.SANS_SERIF, Font.PLAIN, 11);
+	private static final String LABEL_TOGGLE = "labelToggle";
 	// Eye icons from Skretzo's Radius Markers plugin, BSD-2-Clause.
 	private static final ImageIcon VISIBLE_ICON;
 	private static final ImageIcon VISIBLE_HOVER_ICON;
@@ -158,17 +214,23 @@ public class TileOverlayPanel extends PluginPanel
 
 	private final MarkerRepository repository;
 	private final TileOverlayConfig config;
+	private final ColorPickerManager colorPickerManager;
 	private Listener listener;
 	private MarkerSnapshot snapshot = MarkerSnapshot.empty();
 	private final LinkedHashSet<MarkerLocation> selected = new LinkedHashSet<>();
 	private final LinkedHashSet<ObjectRef> selectedObjects = new LinkedHashSet<>();
-	private final Set<ObjectRef> expandedObjects = new HashSet<>();
 	private final Set<ObjectRef> labelEditors = new HashSet<>();
+	private final Set<ObjectRef> expandedObjects = new HashSet<>();
+	private final Set<MarkerLocation> expandedTiles = new HashSet<>();
+	private final Set<MarkerLocation> tileLabelEditors = new HashSet<>();
+	private final Map<MarkerLocation, String> tileLabelDrafts = new HashMap<>();
+	private final Map<ObjectRef, String> objectLabelDrafts = new HashMap<>();
 	private final List<TileMarker> tileOrder = new ArrayList<>();
 	private final List<ObjectMarker> objectOrder = new ArrayList<>();
 	private MarkerLocation tileAnchorLocation;
 	private ObjectRef objectAnchorLocation;
 	private ObjectRef focusLabel;
+	private MarkerLocation focusTileLabel;
 	private int primaryIndex;
 	private int secondaryIndex;
 	private ListFilter tileFilter = ListFilter.UNGROUPED;
@@ -187,15 +249,17 @@ public class TileOverlayPanel extends PluginPanel
 	private JPanel selectionActions;
 	private JPanel nameRow;
 	private JTextField groupNameField;
-	private PillButton clearSelectionButton;
-	private PillButton deleteSelectionButton;
 	private PillButton createGroupButton;
 	private PillButton addToGroupButton;
 	private PillButton newGroupButton;
+	private PillButton importGroupButton;
+	private JPanel groupBar;
 	private JPanel toggles;
 	private TogglePill listFilterToggle;
 	private TogglePill quickDeleteToggle;
 	private JLabel statusLabel;
+	private JPanel statusRow;
+	private JButton collapseAll;
 	private final CardLayout cards = new CardLayout();
 	private final JPanel cardHost = new JPanel(cards);
 	private JPanel tileGroupsBody;
@@ -208,11 +272,12 @@ public class TileOverlayPanel extends PluginPanel
 	private JScrollPane objectsScroll;
 
 	@Inject
-	TileOverlayPanel(MarkerRepository repository, TileOverlayConfig config)
+	TileOverlayPanel(MarkerRepository repository, TileOverlayConfig config, ColorPickerManager colorPickerManager)
 	{
 		super(false);
 		this.repository = repository;
 		this.config = config;
+		this.colorPickerManager = colorPickerManager;
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		setBorder(new EmptyBorder(0, 0, 0, 0));
@@ -310,10 +375,16 @@ public class TileOverlayPanel extends PluginPanel
 		statusLabel = new JLabel(" ", SwingConstants.CENTER);
 		statusLabel.setFont(SMALL_FONT);
 		statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-		statusLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 16));
-		statusLabel.setVisible(false);
-		header.add(statusLabel);
+		statusRow = new JPanel(new BorderLayout(4, 0));
+		statusRow.setOpaque(false);
+		statusRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+		statusRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+		statusRow.setVisible(false);
+		collapseAll = new CollapseAllButton();
+		collapseAll.addActionListener(event -> collapseExpanded());
+		statusRow.add(statusLabel, BorderLayout.CENTER);
+		statusRow.add(collapseAll, BorderLayout.EAST);
+		header.add(statusRow);
 		header.add(Box.createVerticalStrut(6));
 
 		nameRow = new JPanel(new BorderLayout(6, 0));
@@ -349,9 +420,9 @@ public class TileOverlayPanel extends PluginPanel
 		actionRow.setOpaque(false);
 		actionRow.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-		clearSelectionButton = new PillButton("Clear selection", true);
+		PillButton clearSelectionButton = new PillButton("Clear selection", true);
 		clearSelectionButton.addActionListener(event -> clearActiveSelection());
-		deleteSelectionButton = new PillButton("Delete selection", true);
+		PillButton deleteSelectionButton = new PillButton("Delete selection", true);
 		deleteSelectionButton.setToolTipText("Delete the selected items");
 		deleteSelectionButton.addActionListener(event -> deleteActiveSelection());
 		createGroupButton = new PillButton("Create group", true);
@@ -360,10 +431,12 @@ public class TileOverlayPanel extends PluginPanel
 		addToGroupButton = new PillButton("Add to group", true);
 		addToGroupButton.setToolTipText("Add the selected items to a group");
 		addToGroupButton.addActionListener(event -> showAddToGroupMenu(addToGroupButton));
-		newGroupButton = new PillButton("New group");
+		newGroupButton = new PillButton("Create group");
 		newGroupButton.setToolTipText("Name an empty group");
 		newGroupButton.addActionListener(event -> beginNaming(true, null, null));
-		newGroupButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+		importGroupButton = new PillButton("Import");
+		importGroupButton.setToolTipText("Paste a copied group into a new group");
+		importGroupButton.addActionListener(event -> beginImport());
 
 		JPanel selectionTop = buttonRow();
 		selectionTop.add(clearSelectionButton);
@@ -380,8 +453,11 @@ public class TileOverlayPanel extends PluginPanel
 		selectionActions.add(selectionBottom);
 		fitBar(selectionActions);
 		actionRow.add(selectionActions);
-		actionRow.add(newGroupButton);
-		fitBar(newGroupButton);
+		groupBar = buttonRow();
+		groupBar.add(newGroupButton);
+		groupBar.add(importGroupButton);
+		actionRow.add(groupBar);
+		fitBar(groupBar);
 		header.add(actionRow);
 
 		tileGroupsBody = body();
@@ -431,6 +507,13 @@ public class TileOverlayPanel extends PluginPanel
 			alive.add(marker.location());
 		}
 		selected.retainAll(alive);
+		tileLabelEditors.retainAll(alive);
+		expandedTiles.retainAll(alive);
+		tileLabelDrafts.keySet().retainAll(alive);
+		if (focusTileLabel != null && !alive.contains(focusTileLabel))
+		{
+			focusTileLabel = null;
+		}
 		repository.setHighlighted(new HashSet<>(selected));
 
 		Set<ObjectRef> aliveObjects = new HashSet<>();
@@ -439,8 +522,9 @@ public class TileOverlayPanel extends PluginPanel
 			aliveObjects.add(marker.ref());
 		}
 		selectedObjects.retainAll(aliveObjects);
-		expandedObjects.retainAll(aliveObjects);
 		labelEditors.retainAll(aliveObjects);
+		expandedObjects.retainAll(aliveObjects);
+		objectLabelDrafts.keySet().retainAll(aliveObjects);
 		if (focusLabel != null && !aliveObjects.contains(focusLabel))
 		{
 			focusLabel = null;
@@ -448,6 +532,8 @@ public class TileOverlayPanel extends PluginPanel
 		repository.setHighlightedObjects(new HashSet<>(selectedObjects));
 		rememberActiveGroups();
 		rebuild();
+		focusLabel = null;
+		focusTileLabel = null;
 	}
 
 	private void showPrimary(int index)
@@ -514,9 +600,13 @@ public class TileOverlayPanel extends PluginPanel
 		{
 			toggles.setVisible(list);
 		}
-		if (statusLabel != null)
+		if (statusRow != null)
 		{
-			statusLabel.setVisible(list);
+			statusRow.setVisible(list);
+		}
+		if (collapseAll != null)
+		{
+			collapseAll.setVisible(list);
 		}
 		cards.show(cardHost, CARD_KEYS[cardIndex()]);
 		if (built && list)
@@ -635,7 +725,7 @@ public class TileOverlayPanel extends PluginPanel
 		{
 			for (int i = 0; i < tileOrder.size(); i++)
 			{
-				tilesBody.add(tileRow(tileOrder.get(i), i, tileOrder, names));
+				tilesBody.add(tileRow(tileOrder.get(i), i, tileOrder, names, false));
 				tilesBody.add(Box.createVerticalStrut(4));
 			}
 		}
@@ -664,7 +754,7 @@ public class TileOverlayPanel extends PluginPanel
 		{
 			for (int i = 0; i < objectOrder.size(); i++)
 			{
-				objectsBody.add(objectRow(objectOrder.get(i), i, objectOrder, names));
+				objectsBody.add(objectRow(objectOrder.get(i), i, objectOrder, names, false));
 				objectsBody.add(Box.createVerticalStrut(4));
 			}
 		}
@@ -786,6 +876,8 @@ public class TileOverlayPanel extends PluginPanel
 	private JPanel groupCard(MarkerGroup group, GroupKind kind)
 	{
 		int count = 0;
+		boolean allCorners = true;
+		boolean allMerge = true;
 		if (kind == GroupKind.OBJECT)
 		{
 			for (ObjectMarker marker : snapshot.getObjects())
@@ -803,7 +895,20 @@ public class TileOverlayPanel extends PluginPanel
 				if (group.getId().equals(marker.getGroupId()))
 				{
 					count++;
+					if (!Boolean.TRUE.equals(marker.getCornersOnly()))
+					{
+						allCorners = false;
+					}
+					if (!Boolean.TRUE.equals(marker.getMergeBorders()))
+					{
+						allMerge = false;
+					}
 				}
+			}
+			if (count == 0)
+			{
+				allCorners = false;
+				allMerge = false;
 			}
 		}
 
@@ -829,6 +934,10 @@ public class TileOverlayPanel extends PluginPanel
 		name.setCaretColor(Color.WHITE);
 		name.setOpaque(false);
 		name.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+		// A long name must not set the card's minimum width, or the eye and delete sit past the sidebar.
+		Dimension nameSize = name.getPreferredSize();
+		name.setPreferredSize(new Dimension(48, Math.max(22, nameSize.height)));
+		name.setMinimumSize(new Dimension(24, Math.max(22, nameSize.height)));
 		name.addActionListener(event -> commitName(group, name));
 		name.addFocusListener(new FocusAdapter()
 		{
@@ -839,8 +948,13 @@ public class TileOverlayPanel extends PluginPanel
 			}
 		});
 
-		JPanel actions = new JPanel(new GridLayout(1, 2, 4, 0));
+		boolean cornersMarked = allCorners;
+		boolean mergeMarked = allMerge;
+		int members = count;
+		int rows = kind == GroupKind.OBJECT ? 1 : 2;
+		JPanel actions = new JPanel(new GridLayout(rows, 3, 2, 2));
 		actions.setOpaque(false);
+		actions.add(fixedSlot(copyButton(group)));
 		EyeButton eye = new EyeButton(group.isEnabled());
 		eye.addActionListener(event ->
 		{
@@ -851,12 +965,52 @@ public class TileOverlayPanel extends PluginPanel
 		});
 		TrashButton trash = new TrashButton();
 		trash.addActionListener(event -> confirmDelete(group, kind));
-		actions.add(eye);
-		actions.add(trash);
+		actions.add(fixedSlot(eye));
+		actions.add(fixedSlot(trash));
+		if (kind != GroupKind.OBJECT)
+		{
+			actions.add(fixedSlot(groupBrush(group)));
+			actions.add(fixedSlot(groupMarkButton(true, cornersMarked, () ->
+			{
+				if (listener != null && members > 0)
+				{
+					listener.setGroupTileCorners(group.getId(), cornersMarked ? null : Boolean.TRUE);
+				}
+			})));
+			actions.add(fixedSlot(groupMarkButton(false, mergeMarked, () ->
+			{
+				if (listener != null && members > 0)
+				{
+					listener.setGroupTileMerge(group.getId(), mergeMarked ? null : Boolean.TRUE);
+				}
+			})));
+		}
 
-		header.add(chevron, BorderLayout.WEST);
-		header.add(name, BorderLayout.CENTER);
-		header.add(actions, BorderLayout.EAST);
+		JPanel chevronWrap = new JPanel(new GridBagLayout());
+		chevronWrap.setOpaque(false);
+		chevronWrap.add(chevron);
+		JPanel nameWrap = new JPanel(new GridBagLayout());
+		nameWrap.setOpaque(false);
+		GridBagConstraints nameConstraints = new GridBagConstraints();
+		nameConstraints.weightx = 1;
+		nameConstraints.fill = GridBagConstraints.HORIZONTAL;
+		nameConstraints.anchor = GridBagConstraints.WEST;
+		nameWrap.add(name, nameConstraints);
+
+		// BorderLayout stretches the east strip, and GridLayout would open the row gap with it.
+		int cell = 22;
+		int gap = 2;
+		Dimension grid = new Dimension(cell * 3 + gap * 2, cell * rows + gap * (rows - 1));
+		actions.setPreferredSize(grid);
+		actions.setMinimumSize(grid);
+		actions.setMaximumSize(grid);
+		JPanel actionsAnchor = new JPanel(new GridBagLayout());
+		actionsAnchor.setOpaque(false);
+		actionsAnchor.add(actions);
+
+		header.add(chevronWrap, BorderLayout.WEST);
+		header.add(nameWrap, BorderLayout.CENTER);
+		header.add(actionsAnchor, BorderLayout.EAST);
 		card.add(header, BorderLayout.NORTH);
 		card.setOutline(groupBorderColour());
 
@@ -882,7 +1036,29 @@ public class TileOverlayPanel extends PluginPanel
 
 	private JComponent groupMembers(MarkerGroup group, GroupKind kind)
 	{
-		JPanel members = new JPanel();
+		JPanel members = new JPanel()
+		{
+			@Override
+			public Dimension getPreferredSize()
+			{
+				Dimension pref = super.getPreferredSize();
+				return new Dimension(1, pref.height);
+			}
+
+			@Override
+			public Dimension getMinimumSize()
+			{
+				Dimension min = super.getMinimumSize();
+				return new Dimension(1, min.height);
+			}
+
+			@Override
+			public Dimension getMaximumSize()
+			{
+				Dimension pref = getPreferredSize();
+				return new Dimension(Integer.MAX_VALUE, pref.height);
+			}
+		};
 		members.setLayout(new BoxLayout(members, BoxLayout.Y_AXIS));
 		members.setOpaque(false);
 		members.setBorder(new EmptyBorder(6, 4, 0, 0));
@@ -907,10 +1083,10 @@ public class TileOverlayPanel extends PluginPanel
 			}
 			for (int i = 0; i < listed.size(); i++)
 			{
-				members.add(objectRow(listed.get(i), i, listed, names));
+				members.add(objectRow(listed.get(i), i, listed, names, true));
 				if (i < listed.size() - 1)
 				{
-					members.add(Box.createVerticalStrut(4));
+					members.add(Box.createVerticalStrut(2));
 				}
 			}
 			return members;
@@ -933,7 +1109,7 @@ public class TileOverlayPanel extends PluginPanel
 		}
 		for (int i = 0; i < listed.size(); i++)
 		{
-			members.add(tileRow(listed.get(i), i, listed, names));
+			members.add(tileRow(listed.get(i), i, listed, names, true));
 			if (i < listed.size() - 1)
 			{
 				members.add(Box.createVerticalStrut(4));
@@ -1061,19 +1237,27 @@ public class TileOverlayPanel extends PluginPanel
 		}
 	}
 
-	private JPanel tileRow(TileMarker marker, int index, List<TileMarker> order, Map<String, String> names)
+	private JPanel tileRow(TileMarker marker, int index, List<TileMarker> order, Map<String, String> names, boolean inGroup)
 	{
 		boolean on = selected.contains(marker.location());
 		WorldPoint world = marker.location().toWorldPoint();
 		String title = world.getX() + ", " + world.getY();
-		String groupName = marker.getGroupId() == null ? "Ungrouped" : names.getOrDefault(marker.getGroupId(), "Ungrouped");
-		String detail = styleName(marker.getStyle()) + "  ·  plane " + world.getPlane() + "  ·  " + groupName;
-		JComponent labelField = labelled(marker.getLabel())
-			? labelEditor(marker.getLabel(), text -> commitTileLabel(marker, text), false)
-			: null;
-
+		String detail = styleName(marker.getStyle()) + "  ·  plane " + world.getPlane();
+		if (!inGroup)
+		{
+			String groupName = marker.getGroupId() == null ? "Ungrouped" : names.getOrDefault(marker.getGroupId(), "Ungrouped");
+			detail = detail + "  ·  " + groupName;
+		}
+		boolean expanded = expandedTiles.contains(marker.location());
+		JPanel options = expanded ? tileOptions(marker) : null;
+		Set<Component> skip = new HashSet<>();
+		if (options != null)
+		{
+			skip.add(options);
+		}
 		JButton remove = quickDelete ? crossButton(() -> removeTiles(Collections.singleton(marker.location()))) : null;
-		RoundPanel row = row(on, title, labelField, detail, null, remove, tileTextColour());
+		JComponent detailLine = tileDetail(detail, marker, tileTextColour());
+		RoundPanel row = row(on, title, detail, detailLine, options, remove, tileTextColour());
 		MouseAdapter adapter = new MouseAdapter()
 		{
 			@Override
@@ -1091,25 +1275,64 @@ public class TileOverlayPanel extends PluginPanel
 				}
 			}
 		};
-		armRowPress(row, adapter, null);
+		armRowPress(row, adapter, skip);
 		return row;
 	}
 
-	private JPanel objectRow(ObjectMarker marker, int index, List<ObjectMarker> order, Map<String, String> names)
+	private JPanel tileOptions(TileMarker marker)
+	{
+		JPanel block = optionsBlock();
+		CenteredFlow flags = new CenteredFlow();
+		flags.add(tileLabelPill(marker));
+		flags.add(tileFlagButton(marker, true));
+		flags.add(tileFlagButton(marker, false));
+		block.add(flags);
+		if (tileLabelFieldOpen(marker))
+		{
+			boolean focus = focusTileLabel != null && focusTileLabel.equals(marker.location());
+			block.add(Box.createVerticalStrut(4));
+			block.add(centeredField(labelEditor(
+				tileLabelFieldText(marker),
+				text -> commitTileLabel(marker, text),
+				text -> previewTileLabel(marker, text),
+				focus)));
+		}
+		block.add(Box.createVerticalStrut(4));
+		CenteredFlow colours = new CenteredFlow();
+		colours.add(labelledSwatch("Tile", tileSwatch(marker, TileColourSlot.TILE)));
+		colours.add(labelledSwatch("Fill", tileSwatch(marker, TileColourSlot.FILL)));
+		colours.add(labelledSwatch("Label", tileSwatch(marker, TileColourSlot.LABEL)));
+		block.add(colours);
+		return block;
+	}
+
+	private JPanel objectRow(ObjectMarker marker, int index, List<ObjectMarker> order, Map<String, String> names, boolean inGroup)
 	{
 		boolean on = selectedObjects.contains(marker.ref());
 		WorldPoint world = marker.ref().toWorldPoint();
 		String title = objectNameTitle(marker);
-		String groupName = marker.getGroupId() == null ? "Ungrouped" : names.getOrDefault(marker.getGroupId(), "Ungrouped");
-		String detail = world.getX() + ", " + world.getY() + "  ·  plane " + world.getPlane() + "  ·  " + groupName;
+		String detail = world.getX() + ", " + world.getY() + "  ·  plane " + world.getPlane();
+		if (!inGroup)
+		{
+			String groupName = marker.getGroupId() == null ? "Ungrouped" : names.getOrDefault(marker.getGroupId(), "Ungrouped");
+			detail = detail + "  ·  " + groupName;
+		}
 		boolean expanded = expandedObjects.contains(marker.ref());
-		JPanel options = objectOptions(marker, expanded);
+		JPanel options = expanded ? objectOptions(marker) : null;
 		Set<Component> skip = new HashSet<>();
-		skip.add(options);
+		if (options != null)
+		{
+			skip.add(options);
+		}
 
 		JButton remove = quickDelete ? crossButton(() -> removeObjects(Collections.singleton(marker.ref()))) : null;
-		RoundPanel row = row(on, title, null, detail, options, remove, objectTextColour());
-		row.setToolTipText(title + "  ·  id " + marker.getObjectId() + "  ·  click to show highlight styles");
+		JComponent detailLine = objectDetail(detail, marker, objectTextColour());
+		RoundPanel row = row(on, title, detail, detailLine, options, remove, objectTextColour());
+		if (inGroup)
+		{
+			row.setBorder(new EmptyBorder(3, on ? 8 : 10, 2, 8));
+		}
+		row.setToolTipText(title + "  ·  id " + marker.getObjectId());
 		MouseAdapter adapter = new MouseAdapter()
 		{
 			@Override
@@ -1121,39 +1344,25 @@ public class TileOverlayPanel extends PluginPanel
 					showMemberMenu(row, event, GroupKind.OBJECT, Collections.emptyList(), targets);
 					return;
 				}
-				if (!SwingUtilities.isLeftMouseButton(event))
+				if (SwingUtilities.isLeftMouseButton(event))
 				{
-					return;
+					selectObject(marker, index, event.isShiftDown(), order);
 				}
-				if (event.isShiftDown())
-				{
-					expandedObjects.add(marker.ref());
-				}
-				else if (!expandedObjects.remove(marker.ref()))
-				{
-					expandedObjects.add(marker.ref());
-				}
-				selectObject(marker, index, event.isShiftDown(), order);
 			}
 		};
 		armRowPress(row, adapter, skip);
 		return row;
 	}
 
-	private JPanel objectOptions(ObjectMarker marker, boolean expanded)
+	private JPanel objectOptions(ObjectMarker marker)
 	{
-		JPanel block = new JPanel();
-		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
-		block.setOpaque(false);
-		block.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel block = optionsBlock();
 
-		boolean labelled = marker.hasLabel();
 		block.add(sectionTitle("Name display"));
 		CenteredFlow names = new CenteredFlow();
 		names.add(displayToggle(
 			"Name",
 			marker.isShowName(),
-			labelled,
 			"Draw the object name",
 			() ->
 			{
@@ -1165,7 +1374,6 @@ public class TileOverlayPanel extends PluginPanel
 		names.add(displayToggle(
 			"Left-click",
 			marker.isShowLeftClick(),
-			labelled,
 			"Draw the left-click option",
 			() ->
 			{
@@ -1175,52 +1383,493 @@ public class TileOverlayPanel extends PluginPanel
 				}
 			}));
 		names.add(labelPill(marker));
+		names.add(colourSwatch(marker, ObjectColourSlot.TEXT, "Text colour"));
 		block.add(names);
 
-		if (labelled || labelEditors.contains(marker.ref()))
+		if (labelEditors.contains(marker.ref()))
 		{
 			block.add(labelFieldRow(marker));
 		}
 
-		if (expanded)
+		block.add(Box.createVerticalStrut(4));
+		block.add(sectionTitle("Highlight"));
+		CenteredFlow pills = new CenteredFlow();
+		pills.add(highlightChoice(marker, "Outline", marker.isShowOutline(), "Draw the model outline", ObjectColourSlot.OUTLINE, () ->
 		{
-			block.add(Box.createVerticalStrut(4));
-			block.add(sectionTitle("Highlight"));
-			CenteredFlow pills = new CenteredFlow();
-			pills.add(styleToggle("Outline", marker.isShowOutline(), "Draw the model outline", () ->
+			if (listener != null)
 			{
-				if (listener != null)
-				{
-					listener.setObjectShowOutline(marker.ref(), !marker.isShowOutline());
-				}
-			}));
-			pills.add(styleToggle("Hull", marker.isShowHull(), "Draw the convex hull", () ->
+				listener.setObjectShowOutline(marker.ref(), !marker.isShowOutline());
+			}
+		}));
+		pills.add(highlightChoice(marker, "Hull", marker.isShowHull(), "Draw the convex hull", ObjectColourSlot.HULL, () ->
+		{
+			if (listener != null)
 			{
-				if (listener != null)
-				{
-					listener.setObjectShowHull(marker.ref(), !marker.isShowHull());
-				}
-			}));
-			pills.add(styleToggle("Tile", marker.isShowTile(), "Highlight the tile under the object", () ->
+				listener.setObjectShowHull(marker.ref(), !marker.isShowHull());
+			}
+		}));
+		pills.add(highlightChoice(marker, "Tile", marker.isShowTile(), "Highlight the tile under the object", ObjectColourSlot.TILE, () ->
+		{
+			if (listener != null)
 			{
-				if (listener != null)
-				{
-					listener.setObjectShowTile(marker.ref(), !marker.isShowTile());
-				}
-			}));
-			pills.add(styleToggle("Clickbox", marker.isShowClickbox(), "Draw the clickbox", () ->
+				listener.setObjectShowTile(marker.ref(), !marker.isShowTile());
+			}
+		}));
+		pills.add(highlightChoice(marker, "Clickbox", marker.isShowClickbox(), "Draw the clickbox", ObjectColourSlot.CLICKBOX, () ->
+		{
+			if (listener != null)
 			{
-				if (listener != null)
-				{
-					listener.setObjectShowClickbox(marker.ref(), !marker.isShowClickbox());
-				}
-			}));
-			block.add(pills);
-		}
-
-		Dimension pref = block.getPreferredSize();
-		block.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
+				listener.setObjectShowClickbox(marker.ref(), !marker.isShowClickbox());
+			}
+		}));
+		block.add(pills);
 		return block;
+	}
+
+	private static JPanel optionsBlock()
+	{
+		JPanel block = new JPanel()
+		{
+			@Override
+			public Dimension getMaximumSize()
+			{
+				Dimension pref = getPreferredSize();
+				return new Dimension(Integer.MAX_VALUE, pref.height);
+			}
+		};
+		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
+		block.setOpaque(false);
+		block.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return block;
+	}
+
+	private JComponent highlightChoice(ObjectMarker marker, String text, boolean on, String tip, ObjectColourSlot slot, Runnable toggle)
+	{
+		return beside(displayToggle(text, on, tip, toggle), colourSwatch(marker, slot, text + " colour"));
+	}
+
+	private JComponent labelledSwatch(String name, JComponent square)
+	{
+		JPanel pair = new JPanel(new FlowLayout(FlowLayout.CENTER, 3, 0));
+		pair.setOpaque(false);
+		JLabel caption = new JLabel(name);
+		caption.setFont(SMALL_FONT);
+		caption.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		pair.add(caption);
+		pair.add(square);
+		return pair;
+	}
+
+	private JComponent tileSwatch(TileMarker marker, TileColourSlot slot)
+	{
+		Integer custom = tileColourValue(marker, slot);
+		Integer groupColour = groupColourOf(marker);
+		Integer groupFill = groupFillOf(marker);
+		Color shown = shownTileColour(marker, slot, custom, groupColour, groupFill);
+		boolean own = custom != null;
+		String title = tileColourTitle(slot);
+		String idle = tileColourIdle(marker, slot, groupColour, groupFill);
+		String ownTip = title + " for this tile. Right-click to use the default.";
+		return colourSquare(shown, own, ownTip, idle, () ->
+		{
+			if (own && listener != null)
+			{
+				listener.setTileColour(marker.location(), slot, null);
+			}
+		}, () -> chooseTileColour(marker, slot, shown, title));
+	}
+
+	private void chooseTileColour(TileMarker marker, TileColourSlot slot, Color current, String title)
+	{
+		openPicker(current, title, colour ->
+		{
+			Color fallback = shownTileColour(marker, slot, null, groupColourOf(marker), groupFillOf(marker));
+			if (fallback != null && colour.equals(fallback))
+			{
+				listener.setTileColour(marker.location(), slot, null);
+			}
+			else
+			{
+				listener.setTileColour(marker.location(), slot, colour);
+			}
+		});
+	}
+
+	private void chooseGroupColour(MarkerGroup group)
+	{
+		if (colorPickerManager == null || listener == null || group.getId() == null)
+		{
+			return;
+		}
+		String groupId = group.getId();
+		Window owner = SwingUtilities.getWindowAncestor(this);
+		JDialog dialog = new JDialog(owner, "Group colour", Dialog.ModalityType.APPLICATION_MODAL);
+		Integer[] border = {group.getColour()};
+		Integer[] fill = {group.getFillColour()};
+		GroupColourSquare tileSquare = new GroupColourSquare();
+		GroupColourSquare fillSquare = new GroupColourSquare();
+		Runnable refresh = () ->
+		{
+			boolean tileOwn = border[0] != null;
+			tileSquare.show(
+				groupBorderShown(border[0]),
+				tileOwn,
+				tileOwn
+					? "Tile colour for this group. Right-click to use the style colour."
+					: "Using the style colour. Click to set a tile colour for this group.");
+			boolean fillOwn = fill[0] != null;
+			String fillTip;
+			if (fillOwn)
+			{
+				fillTip = "Fill colour for this group. Right-click to use the style fill.";
+			}
+			else if (border[0] != null)
+			{
+				fillTip = "Using the group colour for the fill. Click to set a fill.";
+			}
+			else
+			{
+				fillTip = "Using the style fill. Click to set a fill for this group.";
+			}
+			fillSquare.show(
+				MarkerLooks.tileFill(config, MarkerStyle.TILE, null, border[0], fill[0]),
+				fillOwn,
+				fillTip);
+		};
+		tileSquare.onPress(() ->
+		{
+			if (border[0] != null)
+			{
+				border[0] = null;
+				listener.setGroupColour(groupId, null);
+				refresh.run();
+			}
+		}, () -> openPicker(dialog, groupBorderShown(border[0]), "Tile colour", true, colour ->
+		{
+			border[0] = colour.getRGB();
+			listener.setGroupColour(groupId, colour);
+			refresh.run();
+		}));
+		fillSquare.onPress(() ->
+		{
+			if (fill[0] != null)
+			{
+				fill[0] = null;
+				listener.setGroupFillColour(groupId, null);
+				refresh.run();
+			}
+		}, () -> openPicker(dialog, MarkerLooks.tileFill(config, MarkerStyle.TILE, null, border[0], fill[0]), "Fill colour", true, colour ->
+		{
+			fill[0] = colour.getRGB();
+			listener.setGroupFillColour(groupId, colour);
+			refresh.run();
+		}));
+		refresh.run();
+
+		JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBorder(new EmptyBorder(10, 12, 10, 12));
+		body.add(groupColourRow("Tile", tileSquare));
+		body.add(Box.createVerticalStrut(6));
+		body.add(groupColourRow("Fill", fillSquare));
+		body.add(Box.createVerticalStrut(8));
+		JLabel hint = new JLabel("A tile with its own colour keeps it.");
+		hint.setFont(SMALL_FONT);
+		hint.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		body.add(hint);
+		body.add(Box.createVerticalStrut(8));
+		JButton close = new JButton("Close");
+		close.addActionListener(event -> dialog.dispose());
+		JPanel closeRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+		closeRow.setOpaque(false);
+		closeRow.add(close);
+		body.add(closeRow);
+		dialog.setContentPane(body);
+		dialog.pack();
+		dialog.setResizable(false);
+		dialog.setLocationRelativeTo(owner != null ? owner : this);
+		dialog.setVisible(true);
+	}
+
+	private Color groupBorderShown(Integer stored)
+	{
+		if (stored != null)
+		{
+			Color colour = new Color(stored, true);
+			return new Color(colour.getRed(), colour.getGreen(), colour.getBlue());
+		}
+		Color border = config.tileBorderColour();
+		return border == null ? Color.WHITE : border;
+	}
+
+	private static JComponent groupColourRow(String name, JComponent square)
+	{
+		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		row.setOpaque(false);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JLabel label = new JLabel(name);
+		label.setFont(UI_FONT);
+		label.setPreferredSize(new Dimension(36, 22));
+		row.add(label);
+		row.add(square);
+		return row;
+	}
+
+	private Integer groupColourOf(TileMarker marker)
+	{
+		if (marker.getGroupId() == null)
+		{
+			return null;
+		}
+		for (MarkerGroup group : snapshot.getGroups())
+		{
+			if (group != null && marker.getGroupId().equals(group.getId()))
+			{
+				return group.getColour();
+			}
+		}
+		return null;
+	}
+
+	private Integer groupFillOf(TileMarker marker)
+	{
+		if (marker.getGroupId() == null)
+		{
+			return null;
+		}
+		for (MarkerGroup group : snapshot.getGroups())
+		{
+			if (group != null && marker.getGroupId().equals(group.getId()))
+			{
+				return group.getFillColour();
+			}
+		}
+		return null;
+	}
+
+	private Color shownTileColour(TileMarker marker, TileColourSlot slot, Integer custom, Integer groupColour, Integer groupFill)
+	{
+		MarkerStyle style = marker.getStyle() == null ? MarkerStyle.TILE : marker.getStyle();
+		if (slot == TileColourSlot.LABEL)
+		{
+			return shownColour(custom, config.labelTextColour());
+		}
+		if (slot == TileColourSlot.FILL)
+		{
+			return MarkerLooks.tileFill(config, style, custom, groupColour, groupFill);
+		}
+		return MarkerLooks.tileBorder(config, style, custom, groupColour);
+	}
+
+	private static Integer tileColourValue(TileMarker marker, TileColourSlot slot)
+	{
+		if (slot == TileColourSlot.FILL)
+		{
+			return marker.getFillColour();
+		}
+		if (slot == TileColourSlot.LABEL)
+		{
+			return marker.getLabelColour();
+		}
+		return marker.getBorderColour();
+	}
+
+	private static String tileColourTitle(TileColourSlot slot)
+	{
+		if (slot == TileColourSlot.FILL)
+		{
+			return "Fill colour";
+		}
+		if (slot == TileColourSlot.LABEL)
+		{
+			return "Label colour";
+		}
+		return "Tile colour";
+	}
+
+	private static String tileColourIdle(TileMarker marker, TileColourSlot slot, Integer groupColour, Integer groupFill)
+	{
+		if (slot == TileColourSlot.FILL && (groupFill != null || groupColour != null))
+		{
+			return "Using the group colour. Click to set this tile.";
+		}
+		if (slot == TileColourSlot.TILE && groupColour != null)
+		{
+			return "Using the group colour. Click to set this tile.";
+		}
+		String style = styleName(marker.getStyle());
+		if (slot == TileColourSlot.LABEL)
+		{
+			return "Using the label colour from settings. Click to set this tile.";
+		}
+		if (slot == TileColourSlot.FILL)
+		{
+			return "Using the " + style + " fill from settings. Click to set this tile.";
+		}
+		return "Using the " + style + " colour from settings. Click to set this tile.";
+	}
+
+	private JComponent colourSwatch(ObjectMarker marker, ObjectColourSlot slot, String title)
+	{
+		Integer custom = colourValue(marker, slot);
+		Color shown = shownColour(custom, defaultColour(slot));
+		boolean own = custom != null;
+		return colourSquare(
+			shown,
+			own,
+			title + " for this object. Right-click to use the default.",
+			"Using the default " + title.toLowerCase() + ". Click to choose one for this object.",
+			() ->
+			{
+				if (own && listener != null)
+				{
+					listener.setObjectColour(marker.ref(), slot, null);
+				}
+			},
+			() -> chooseObjectColour(marker, slot, shown, title));
+	}
+
+	private JComponent colourSquare(Color shown, boolean own, String ownTip, String idleTip, Runnable clear, Runnable choose)
+	{
+		Color paint = shown == null ? Color.WHITE : shown;
+		JPanel square = new JPanel()
+		{
+			@Override
+			protected void paintComponent(Graphics graphics)
+			{
+				Graphics2D g2 = (Graphics2D) graphics.create();
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(paint);
+				g2.fillRoundRect(0, 0, Math.max(0, getWidth() - 1), Math.max(0, getHeight() - 1), 3, 3);
+				g2.setColor(own ? Color.WHITE : new Color(255, 255, 255, 70));
+				g2.drawRoundRect(0, 0, Math.max(0, getWidth() - 1), Math.max(0, getHeight() - 1), 3, 3);
+				g2.dispose();
+			}
+		};
+		square.setOpaque(false);
+		square.setPreferredSize(new Dimension(12, 12));
+		square.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		square.setToolTipText(own ? ownTip : idleTip);
+		square.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				if (SwingUtilities.isRightMouseButton(event))
+				{
+					clear.run();
+					return;
+				}
+				if (SwingUtilities.isLeftMouseButton(event))
+				{
+					choose.run();
+				}
+			}
+		});
+
+		JPanel box = new JPanel(new GridBagLayout());
+		box.setOpaque(false);
+		box.setPreferredSize(new Dimension(14, 22));
+		box.add(square);
+		return box;
+	}
+
+	private void openPicker(Color current, String title, Consumer<Color> apply)
+	{
+		openPicker(SwingUtilities.getWindowAncestor(this), current, title, false, apply);
+	}
+
+	private void openPicker(Window owner, Color current, String title, boolean keepSame, Consumer<Color> apply)
+	{
+		if (colorPickerManager == null || listener == null)
+		{
+			return;
+		}
+		Color start = current == null ? Color.WHITE : current;
+		RuneliteColorPicker picker = colorPickerManager.create(owner, start, title, false);
+		picker.setOnClose(colour -> SwingUtilities.invokeLater(() ->
+		{
+			if (listener == null || colour == null || (!keepSame && colour.equals(start)))
+			{
+				return;
+			}
+			apply.accept(colour);
+		}));
+		// A dialog with no location stays at the monitor origin. Place it on the client.
+		picker.setLocationRelativeTo(owner != null ? owner : this);
+		picker.setVisible(true);
+	}
+
+	private void chooseObjectColour(ObjectMarker marker, ObjectColourSlot slot, Color current, String title)
+	{
+		openPicker(current, title, colour ->
+		{
+			Color fallback = defaultColour(slot);
+			if (fallback != null && colour.equals(fallback))
+			{
+				listener.setObjectColour(marker.ref(), slot, null);
+			}
+			else
+			{
+				listener.setObjectColour(marker.ref(), slot, colour);
+			}
+		});
+	}
+
+	private static Integer colourValue(ObjectMarker marker, ObjectColourSlot slot)
+	{
+		switch (slot)
+		{
+			case TEXT:
+				return marker.getTextColour();
+			case OUTLINE:
+				return marker.getOutlineColour();
+			case HULL:
+				return marker.getHullColour();
+			case TILE:
+				return marker.getTileColour();
+			case CLICKBOX:
+				return marker.getClickboxColour();
+			default:
+				return null;
+		}
+	}
+
+	private Color defaultColour(ObjectColourSlot slot)
+	{
+		switch (slot)
+		{
+			case TEXT:
+				return config.objectTextColour();
+			case OUTLINE:
+				return config.objectOutlineColour();
+			case HULL:
+				return config.objectHullColour();
+			case TILE:
+				return config.objectTileColour();
+			case CLICKBOX:
+				return config.objectClickboxColour();
+			default:
+				return null;
+		}
+	}
+
+	private static Color shownColour(Integer custom, Color fallback)
+	{
+		if (custom != null)
+		{
+			return new Color(custom, true);
+		}
+		return fallback == null ? Color.WHITE : fallback;
+	}
+
+	private static JComponent beside(JComponent pill, JComponent swatch)
+	{
+		JPanel pair = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+		pair.setOpaque(false);
+		pair.add(pill);
+		pair.add(swatch);
+		return pair;
 	}
 
 	private static JLabel sectionTitle(String text)
@@ -1234,18 +1883,374 @@ public class TileOverlayPanel extends PluginPanel
 
 	private TogglePill labelPill(ObjectMarker marker)
 	{
-		boolean open = marker.hasLabel() || labelEditors.contains(marker.ref());
+		boolean editor = labelEditors.contains(marker.ref());
+		boolean shown = marker.hasLabel();
+		String draft = objectLabelDrafts.get(marker.ref());
+		boolean kept = draft != null && !draft.isEmpty();
 		TogglePill pill = new TogglePill("Label");
-		pill.setOn(open);
-		pill.setToolTipText(marker.hasLabel() ? "Edit the label" : "Add a label");
-		pill.addActionListener(event -> toggleLabelEditor(marker));
+		pill.putClientProperty(LABEL_TOGGLE, Boolean.TRUE);
+		pill.setOn(shown || editor);
+		if (editor || shown)
+		{
+			pill.setToolTipText("Hide the label");
+		}
+		else if (kept)
+		{
+			pill.setToolTipText("Show the label");
+		}
+		else
+		{
+			pill.setToolTipText("Add a label");
+		}
+		pill.addActionListener(event -> toggleObjectLabel(marker, pill));
 		return pill;
 	}
 
 	private JComponent labelFieldRow(ObjectMarker marker)
 	{
 		boolean focus = focusLabel != null && focusLabel.equals(marker.ref());
-		JTextField field = labelEditor(marker.hasLabel() ? marker.getLabel().trim() : "", text -> commitObjectLabel(marker, text), focus);
+		JTextField field = labelEditor(
+			objectLabelFieldText(marker),
+			text -> commitObjectLabel(marker, text),
+			text -> previewObjectLabel(marker, text),
+			focus);
+		return centeredField(field);
+	}
+
+	private String objectLabelFieldText(ObjectMarker marker)
+	{
+		if (marker.hasLabel())
+		{
+			return marker.getLabel().trim();
+		}
+		String draft = objectLabelDrafts.get(marker.ref());
+		return draft == null ? "" : draft;
+	}
+
+	private TogglePill tileLabelPill(TileMarker marker)
+	{
+		boolean editor = tileLabelEditors.contains(marker.location());
+		boolean shown = labelled(marker.getLabel());
+		String draft = tileLabelDrafts.get(marker.location());
+		boolean kept = draft != null && !draft.isEmpty();
+		TogglePill pill = new TogglePill("Label");
+		pill.putClientProperty(LABEL_TOGGLE, Boolean.TRUE);
+		pill.setOn(shown || editor);
+		if (editor || shown)
+		{
+			pill.setToolTipText("Hide the label");
+		}
+		else if (kept)
+		{
+			pill.setToolTipText("Show the label");
+		}
+		else
+		{
+			pill.setToolTipText("Add a label");
+		}
+		pill.addActionListener(event -> toggleTileLabel(marker, pill));
+		return pill;
+	}
+
+	private JButton tileFlagButton(TileMarker marker, boolean corners)
+	{
+		MarkerStyle style = marker.getStyle() == null ? MarkerStyle.TILE : marker.getStyle();
+		Boolean override = corners ? marker.getCornersOnly() : marker.getMergeBorders();
+		boolean effective = corners
+			? MarkerLooks.cornersOnly(config, style, override)
+			: MarkerLooks.merge(config, style, override);
+		JButton button = corners ? new CornerMarkButton(effective) : new MergeMarkButton(effective);
+		button.setToolTipText(tileFlagTip(corners, effective, override != null));
+		button.addActionListener(event ->
+		{
+			if (listener == null)
+			{
+				return;
+			}
+			Boolean next = override == null ? !effective : null;
+			if (corners)
+			{
+				listener.setTileCorners(marker.location(), next);
+			}
+			else
+			{
+				listener.setTileMerge(marker.location(), next);
+			}
+		});
+		return button;
+	}
+
+	private static String tileFlagTip(boolean corners, boolean effective, boolean pinned)
+	{
+		String name = corners ? "Corners" : "Merge";
+		if (!pinned)
+		{
+			if (effective)
+			{
+				return corners
+					? "Following Corners (on). Click to turn corners off for this tile."
+					: "Following Merge (on). Click to stop merging this tile.";
+			}
+			return corners
+				? "Following Corners (off). Click to draw corners on this tile."
+				: "Following Merge (off). Click to merge this tile.";
+		}
+		if (effective)
+		{
+			return name + " on for this tile. Click to follow the " + name + " setting.";
+		}
+		return name + " off for this tile. Click to follow the " + name + " setting.";
+	}
+
+	private JButton groupMarkButton(boolean corners, boolean marked, Runnable apply)
+	{
+		JButton button = corners ? new CornerMarkButton(marked) : new MergeMarkButton(marked);
+		if (marked)
+		{
+			button.setToolTipText(corners
+				? "Follow the Corners setting for this group"
+				: "Follow the Merge setting for this group");
+		}
+		else
+		{
+			button.setToolTipText(corners
+				? "Draw corners for every tile in this group"
+				: "Merge borders for every tile in this group");
+		}
+		button.addActionListener(event -> apply.run());
+		return button;
+	}
+
+	private JButton groupBrush(MarkerGroup group)
+	{
+		boolean marked = group.getColour() != null || group.getFillColour() != null;
+		BrushButton button = new BrushButton(marked);
+		button.setToolTipText(marked
+			? "Group colour is set. Click to change the tile and fill. Right-click to use the style colours."
+			: "Set the tile and fill colours for this group. A tile with its own colour keeps it.");
+		button.addActionListener(event -> chooseGroupColour(group));
+		button.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				if (SwingUtilities.isRightMouseButton(event) && marked && listener != null)
+				{
+					listener.setGroupColour(group.getId(), null);
+					listener.setGroupFillColour(group.getId(), null);
+				}
+			}
+		});
+		return button;
+	}
+
+	private JButton copyButton(MarkerGroup group)
+	{
+		CopyButton button = new CopyButton();
+		String noun = group.getKind() == GroupKind.OBJECT ? "objects" : "tiles";
+		button.setToolTipText("Copy this group's " + noun + ". Import them from the groups tab.");
+		button.addActionListener(event -> copyGroup(group));
+		return button;
+	}
+
+	private void copyGroup(MarkerGroup group)
+	{
+		if (listener == null || group.getId() == null)
+		{
+			return;
+		}
+		String text = listener.copyGroup(group.getId());
+		if (text == null)
+		{
+			return;
+		}
+		try
+		{
+			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+		}
+		catch (RuntimeException ex)
+		{
+			JTextArea area = new JTextArea(text, 8, 28);
+			area.setLineWrap(true);
+			area.setEditable(false);
+			JOptionPane.showMessageDialog(
+				SwingUtilities.getWindowAncestor(this),
+				new JScrollPane(area),
+				"Copy this group",
+				JOptionPane.INFORMATION_MESSAGE);
+		}
+	}
+
+	private void beginImport()
+	{
+		if (listener == null)
+		{
+			return;
+		}
+		GroupKind kind = activeKind();
+		JTextArea area = new JTextArea(8, 28);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		area.setFont(UI_FONT);
+		String clip = clipboardText();
+		if (GroupShare.looksLike(clip))
+		{
+			area.setText(clip);
+			area.setCaretPosition(0);
+		}
+		JPanel form = new JPanel(new BorderLayout(0, 6));
+		form.setOpaque(false);
+		JLabel help = new JLabel("<html>Paste a copied group. A tile group only imports on Tile Groups,<br>and an object group only imports on Object Groups.</html>");
+		help.setFont(SMALL_FONT);
+		form.add(help, BorderLayout.NORTH);
+		form.add(new JScrollPane(area), BorderLayout.CENTER);
+		String title = kind == GroupKind.OBJECT ? "Import object group" : "Import tile group";
+		int result = JOptionPane.showOptionDialog(
+			SwingUtilities.getWindowAncestor(this),
+			form,
+			title,
+			JOptionPane.OK_CANCEL_OPTION,
+			JOptionPane.PLAIN_MESSAGE,
+			null,
+			new Object[]{"Import", "Cancel"},
+			"Import");
+		if (result != 0)
+		{
+			return;
+		}
+		listener.importGroup(kind, area.getText(), message -> JOptionPane.showMessageDialog(
+			SwingUtilities.getWindowAncestor(this),
+			message,
+			"Import group",
+			JOptionPane.INFORMATION_MESSAGE));
+	}
+
+	private static String clipboardText()
+	{
+		try
+		{
+			Object data = Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+			return data instanceof String ? (String) data : "";
+		}
+		catch (Exception ex)
+		{
+			return "";
+		}
+	}
+
+	private boolean tileLabelFieldOpen(TileMarker marker)
+	{
+		return tileLabelEditors.contains(marker.location());
+	}
+
+	private String tileLabelFieldText(TileMarker marker)
+	{
+		if (labelled(marker.getLabel()))
+		{
+			return marker.getLabel();
+		}
+		String draft = tileLabelDrafts.get(marker.location());
+		return draft == null ? "" : draft;
+	}
+
+	private void toggleTileLabel(TileMarker marker, Component source)
+	{
+		MarkerLocation location = marker.location();
+		String typed = fieldText(source);
+		if (typed == null)
+		{
+			if (labelled(marker.getLabel()))
+			{
+				typed = marker.getLabel().trim();
+			}
+			else
+			{
+				String draft = tileLabelDrafts.get(location);
+				typed = draft == null ? "" : draft;
+			}
+		}
+		typed = typed.trim();
+		boolean on = tileLabelEditors.contains(location) || labelled(marker.getLabel());
+		if (on)
+		{
+			tileLabelEditors.remove(location);
+			if (typed.isEmpty())
+			{
+				tileLabelDrafts.remove(location);
+			}
+			else
+			{
+				tileLabelDrafts.put(location, typed);
+			}
+			if (listener != null)
+			{
+				listener.setTileLabel(location, "");
+				return;
+			}
+			rebuild();
+			syncGroupHints();
+			return;
+		}
+		tileLabelEditors.add(location);
+		focusTileLabel = location;
+		if (listener != null)
+		{
+			listener.setTileLabel(location, typed);
+			return;
+		}
+		rebuild();
+		syncGroupHints();
+		focusTileLabel = null;
+	}
+
+	private static String fieldText(Component source)
+	{
+		JTextField field = findField(source);
+		if (field == null)
+		{
+			return null;
+		}
+		String text = field.getText();
+		return text == null ? "" : text;
+	}
+
+	/** The label field sits in the options block under the pill, not beside it. */
+	private static JTextField findField(Component source)
+	{
+		Container container = source == null ? null : source.getParent();
+		while (container != null)
+		{
+			if (container.getLayout() instanceof BoxLayout)
+			{
+				return firstField(container);
+			}
+			container = container.getParent();
+		}
+		return null;
+	}
+
+	private static JTextField firstField(Container container)
+	{
+		for (Component child : container.getComponents())
+		{
+			if (child instanceof JTextField)
+			{
+				return (JTextField) child;
+			}
+			if (child instanceof Container)
+			{
+				JTextField nested = firstField((Container) child);
+				if (nested != null)
+				{
+					return nested;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static JComponent centeredField(JTextField field)
+	{
 		JPanel holder = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
 		holder.setOpaque(false);
 		holder.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -1255,31 +2260,151 @@ public class TileOverlayPanel extends PluginPanel
 		return holder;
 	}
 
-	private void toggleLabelEditor(ObjectMarker marker)
+	private void toggleObjectLabel(ObjectMarker marker, Component source)
 	{
 		ObjectRef ref = marker.ref();
-		boolean open = marker.hasLabel() || labelEditors.contains(ref);
-		if (!open)
+		String typed = fieldText(source);
+		if (typed == null)
 		{
-			labelEditors.add(ref);
-			focusLabel = ref;
+			if (marker.hasLabel())
+			{
+				typed = marker.getLabel().trim();
+			}
+			else
+			{
+				String draft = objectLabelDrafts.get(ref);
+				typed = draft == null ? "" : draft;
+			}
 		}
-		else if (marker.hasLabel())
-		{
-			focusLabel = ref;
-		}
-		else
+		typed = typed.trim();
+		boolean on = labelEditors.contains(ref) || marker.hasLabel();
+		if (on)
 		{
 			labelEditors.remove(ref);
+			if (typed.isEmpty())
+			{
+				objectLabelDrafts.remove(ref);
+			}
+			else
+			{
+				objectLabelDrafts.put(ref, typed);
+			}
+			if (listener != null)
+			{
+				listener.setObjectLabel(ref, "");
+				return;
+			}
+			rebuild();
+			syncGroupHints();
+			return;
 		}
-		rebuildObjects();
+		labelEditors.add(ref);
+		focusLabel = ref;
+		if (listener != null)
+		{
+			listener.setObjectLabel(ref, typed);
+			return;
+		}
+		rebuild();
 		syncGroupHints();
 		focusLabel = null;
 	}
 
-	private TogglePill styleToggle(String text, boolean on, String tip, Runnable toggle)
+	private void toggleTileExpanded(MarkerLocation location)
 	{
-		return displayToggle(text, on, false, tip, toggle);
+		if (!expandedTiles.add(location))
+		{
+			expandedTiles.remove(location);
+		}
+		rebuild();
+		syncGroupHints();
+	}
+
+	private JComponent tileDetail(String detail, TileMarker marker, Color colour)
+	{
+		boolean expanded = expandedTiles.contains(marker.location());
+		JLabel detailLabel = new JLabel(detail);
+		detailLabel.setFont(SMALL_FONT);
+		detailLabel.setForeground(colour == null ? Color.WHITE : colour);
+		Dimension labelSize = detailLabel.getPreferredSize();
+		detailLabel.setMinimumSize(new Dimension(0, labelSize.height));
+		JButton chevron = new ChevronButton(!expanded, 16);
+		chevron.addActionListener(event -> toggleTileExpanded(marker.location()));
+		return detailLine(detailLabel, chevron);
+	}
+
+	private void toggleObjectExpanded(ObjectRef ref)
+	{
+		if (!expandedObjects.add(ref))
+		{
+			expandedObjects.remove(ref);
+		}
+		rebuild();
+		syncGroupHints();
+	}
+
+	private void collapseExpanded()
+	{
+		if (activeKind() == GroupKind.OBJECT)
+		{
+			if (expandedObjects.isEmpty())
+			{
+				return;
+			}
+			expandedObjects.clear();
+		}
+		else if (expandedTiles.isEmpty())
+		{
+			return;
+		}
+		else
+		{
+			expandedTiles.clear();
+		}
+		rebuild();
+		syncGroupHints();
+	}
+
+	private JComponent objectDetail(String detail, ObjectMarker marker, Color colour)
+	{
+		boolean expanded = expandedObjects.contains(marker.ref());
+		JLabel detailLabel = new JLabel(detail);
+		detailLabel.setFont(SMALL_FONT);
+		detailLabel.setForeground(colour == null ? Color.WHITE : colour);
+		Dimension labelSize = detailLabel.getPreferredSize();
+		detailLabel.setMinimumSize(new Dimension(0, labelSize.height));
+		JButton chevron = new ChevronButton(!expanded, 16);
+		chevron.addActionListener(event -> toggleObjectExpanded(marker.ref()));
+		return detailLine(detailLabel, chevron);
+	}
+
+	private static JComponent detailLine(JLabel detailLabel, JButton chevron)
+	{
+		JPanel line = new JPanel(new BorderLayout(2, 0))
+		{
+			@Override
+			public Dimension getPreferredSize()
+			{
+				return new Dimension(1, Math.max(16, super.getPreferredSize().height));
+			}
+
+			@Override
+			public Dimension getMinimumSize()
+			{
+				return new Dimension(1, getPreferredSize().height);
+			}
+
+			@Override
+			public Dimension getMaximumSize()
+			{
+				return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+			}
+		};
+		line.setOpaque(false);
+		line.setAlignmentX(Component.LEFT_ALIGNMENT);
+		line.add(detailLabel, BorderLayout.CENTER);
+		line.add(chevron, BorderLayout.EAST);
+		return line;
 	}
 
 	private static String objectNameTitle(ObjectMarker marker)
@@ -1296,7 +2421,7 @@ public class TileOverlayPanel extends PluginPanel
 		return label != null && !label.isEmpty();
 	}
 
-	private JTextField labelEditor(String text, Consumer<String> commit, boolean focus)
+	private JTextField labelEditor(String text, Consumer<String> commit, Consumer<String> live, boolean focus)
 	{
 		JTextField field = new JTextField(text == null ? "" : text);
 		field.setFont(UI_FONT);
@@ -1311,12 +2436,53 @@ public class TileOverlayPanel extends PluginPanel
 		field.setPreferredSize(new Dimension(160, 22));
 		field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
 		field.setToolTipText("Label");
+		if (live != null)
+		{
+			String[] sent = {text == null ? "" : text.trim()};
+			field.getDocument().addDocumentListener(new DocumentListener()
+			{
+				@Override
+				public void insertUpdate(DocumentEvent event)
+				{
+					send();
+				}
+
+				@Override
+				public void removeUpdate(DocumentEvent event)
+				{
+					send();
+				}
+
+				@Override
+				public void changedUpdate(DocumentEvent event)
+				{
+					send();
+				}
+
+				private void send()
+				{
+					String next = field.getText() == null ? "" : field.getText().trim();
+					if (next.equals(sent[0]))
+					{
+						return;
+					}
+					sent[0] = next;
+					live.accept(next);
+				}
+			});
+		}
 		field.addActionListener(event -> commit.accept(field.getText()));
 		field.addFocusListener(new FocusAdapter()
 		{
 			@Override
 			public void focusLost(FocusEvent event)
 			{
+				// The label button reads the field in its own action. Saving first would
+				// apply or clear the label before that click can decide.
+				if (isLabelToggle(event.getOppositeComponent()))
+				{
+					return;
+				}
 				commit.accept(field.getText());
 			}
 		});
@@ -1333,30 +2499,58 @@ public class TileOverlayPanel extends PluginPanel
 		return field;
 	}
 
+	private void previewTileLabel(TileMarker marker, String text)
+	{
+		if (listener == null || !tileLabelEditors.contains(marker.location()))
+		{
+			return;
+		}
+		listener.previewTileLabel(marker.location(), text);
+	}
+
 	private void commitTileLabel(TileMarker marker, String text)
 	{
+		if (listener == null || !tileLabelEditors.contains(marker.location()))
+		{
+			return;
+		}
 		String next = text == null ? "" : text.trim();
 		String current = marker.getLabel() == null ? "" : marker.getLabel().trim();
-		if (next.equals(current) || listener == null)
+		if (next.equals(current))
 		{
 			return;
 		}
 		listener.setTileLabel(marker.location(), next);
 	}
 
-	private void commitObjectLabel(ObjectMarker marker, String text)
+	private void previewObjectLabel(ObjectMarker marker, String text)
 	{
-		String next = text == null ? "" : text.trim();
-		String current = marker.hasLabel() ? marker.getLabel().trim() : "";
-		if (next.equals(current) || listener == null)
+		if (listener == null || !labelEditors.contains(marker.ref()))
 		{
 			return;
 		}
-		if (next.isEmpty())
+		listener.previewObjectLabel(marker.ref(), text);
+	}
+
+	private void commitObjectLabel(ObjectMarker marker, String text)
+	{
+		if (listener == null || !labelEditors.contains(marker.ref()))
 		{
-			labelEditors.remove(marker.ref());
+			return;
+		}
+		String next = text == null ? "" : text.trim();
+		String current = marker.hasLabel() ? marker.getLabel().trim() : "";
+		if (next.equals(current))
+		{
+			return;
 		}
 		listener.setObjectLabel(marker.ref(), next);
+	}
+
+	private static boolean isLabelToggle(Component component)
+	{
+		return component instanceof JComponent
+			&& Boolean.TRUE.equals(((JComponent) component).getClientProperty(LABEL_TOGGLE));
 	}
 
 	private void armRowPress(Component component, MouseAdapter adapter, Set<Component> skip)
@@ -1375,23 +2569,16 @@ public class TileOverlayPanel extends PluginPanel
 		}
 	}
 
-	private TogglePill displayToggle(String text, boolean on, boolean labelled, String tip, Runnable toggle)
+	private TogglePill displayToggle(String text, boolean on, String tip, Runnable toggle)
 	{
 		TogglePill pill = new TogglePill(text);
 		pill.setOn(on);
-		pill.setEnabled(!labelled);
-		pill.setToolTipText(labelled ? "A label is shown. Clear it, then turn this back on." : tip);
-		pill.addActionListener(event ->
-		{
-			if (!labelled)
-			{
-				toggle.run();
-			}
-		});
+		pill.setToolTipText(tip);
+		pill.addActionListener(event -> toggle.run());
 		return pill;
 	}
 
-	private RoundPanel row(boolean on, String title, JComponent underTitle, String detail, JComponent extra, JComponent remove, Color titleColour)
+	private RoundPanel row(boolean on, String title, String detail, JComponent detailLine, JComponent extra, JComponent remove, Color titleColour)
 	{
 		RoundPanel row = new RoundPanel(on ? CARD_SELECTED : CARD);
 		row.setLayout(new BorderLayout(6, 0));
@@ -1402,22 +2589,21 @@ public class TileOverlayPanel extends PluginPanel
 		titleLabel.setFont(UI_FONT);
 		titleLabel.setForeground(textColour);
 
-		JLabel detailLabel = new JLabel(detail);
-		detailLabel.setFont(SMALL_FONT);
-		detailLabel.setForeground(textColour);
+		JComponent detailComponent = detailLine;
+		if (detailComponent == null)
+		{
+			JLabel detailLabel = new JLabel(detail);
+			detailLabel.setFont(SMALL_FONT);
+			detailLabel.setForeground(textColour);
+			detailComponent = detailLabel;
+		}
 
 		JPanel text = new JPanel();
 		text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
 		text.setOpaque(false);
 		text.add(titleLabel);
-		if (underTitle != null)
-		{
-			text.add(Box.createVerticalStrut(4));
-			underTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-			text.add(underTitle);
-		}
 		text.add(Box.createVerticalStrut(2));
-		text.add(detailLabel);
+		text.add(detailComponent);
 		if (extra != null)
 		{
 			text.add(Box.createVerticalStrut(4));
@@ -1740,12 +2926,16 @@ public class TileOverlayPanel extends PluginPanel
 		boolean list = listView();
 		boolean pending = activeKind() == GroupKind.OBJECT ? !selectedObjects.isEmpty() : !selected.isEmpty();
 		boolean showNew = !list && !pending;
+		boolean showImport = !list;
 		boolean show = pending || showNew;
+		boolean moved = placeGroupActions(list, pending);
 		boolean layout = actionRow.isVisible() != show
 			|| selectionActions.isVisible() != pending
-			|| newGroupButton.isVisible() != showNew;
+			|| groupBar.isVisible() != showNew
+			|| moved;
 		selectionActions.setVisible(pending);
-		newGroupButton.setVisible(showNew);
+		groupBar.setVisible(showNew);
+		importGroupButton.setVisible(showImport);
 		actionRow.setVisible(show);
 		if (show)
 		{
@@ -1756,6 +2946,55 @@ public class TileOverlayPanel extends PluginPanel
 			revalidate();
 			repaint();
 		}
+	}
+
+	/**
+	 * Import sits beside Create group on the groups tab. On the list it stays off that row.
+	 * A component can only have one parent, so the button moves when the tab or selection changes.
+	 */
+	private boolean placeGroupActions(boolean list, boolean pending)
+	{
+		JPanel bottom = selectionBottomParent();
+		if (bottom == null)
+		{
+			return false;
+		}
+		boolean importInSelection = !list && pending;
+		if (importInSelection)
+		{
+			if (importGroupButton.getParent() == bottom)
+			{
+				return false;
+			}
+			bottom.removeAll();
+			bottom.add(createGroupButton);
+			bottom.add(importGroupButton);
+			bottom.add(addToGroupButton);
+			groupBar.removeAll();
+			groupBar.add(newGroupButton);
+			bottom.revalidate();
+			groupBar.revalidate();
+			return true;
+		}
+		if (importGroupButton.getParent() == groupBar)
+		{
+			return false;
+		}
+		bottom.removeAll();
+		bottom.add(createGroupButton);
+		bottom.add(addToGroupButton);
+		groupBar.removeAll();
+		groupBar.add(newGroupButton);
+		groupBar.add(importGroupButton);
+		bottom.revalidate();
+		groupBar.revalidate();
+		return true;
+	}
+
+	private JPanel selectionBottomParent()
+	{
+		Container parent = createGroupButton.getParent();
+		return parent instanceof JPanel ? (JPanel) parent : null;
 	}
 
 	private void deleteActiveSelection()
@@ -1956,7 +3195,7 @@ public class TileOverlayPanel extends PluginPanel
 
 	private static JPanel buttonRow()
 	{
-		JPanel row = new JPanel(new GridLayout(1, 2, 4, 0))
+		JPanel row = new JPanel(new GridLayout(1, 0, 4, 0))
 		{
 			@Override
 			public Dimension getMaximumSize()
@@ -2004,11 +3243,7 @@ public class TileOverlayPanel extends PluginPanel
 
 	private static JPanel body()
 	{
-		JPanel body = new JPanel();
-		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		body.setBorder(new EmptyBorder(0, 8, 12, 8));
-		return body;
+		return new ListBody();
 	}
 
 	private static JScrollPane scroll(JPanel body)
@@ -2022,14 +3257,146 @@ public class TileOverlayPanel extends PluginPanel
 		return scroll;
 	}
 
-	private static JLabel hint(String text)
+	private static JComponent hint(String text)
 	{
-		JLabel label = new JLabel("<html><body style='width:180px'>" + text + "</body></html>");
-		label.setFont(SMALL_FONT);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setBorder(new EmptyBorder(8, 4, 8, 4));
-		stretch(label);
-		return label;
+		return new HintText(text);
+	}
+
+	/**
+	 * Wraps to the real row width. Preferred width stays 1 so the hint cannot
+	 * widen the list, and the right inset keeps the last glyph inside the sidebar.
+	 */
+	private static final class HintText extends JComponent
+	{
+		private final String text;
+		private int laidOutWidth = -1;
+
+		private HintText(String text)
+		{
+			this.text = text == null ? "" : text;
+			setFont(SMALL_FONT);
+			setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			setOpaque(false);
+			setAlignmentX(Component.LEFT_ALIGNMENT);
+			setBorder(new EmptyBorder(8, 4, 8, 12));
+		}
+
+		@Override
+		public Dimension getPreferredSize()
+		{
+			return new Dimension(1, heightFor(textWidth(availableWidth())));
+		}
+
+		@Override
+		public Dimension getMinimumSize()
+		{
+			return new Dimension(1, getPreferredSize().height);
+		}
+
+		@Override
+		public Dimension getMaximumSize()
+		{
+			return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+		}
+
+		@Override
+		public void setBounds(int x, int y, int width, int height)
+		{
+			super.setBounds(x, y, width, height);
+			if (width <= 0 || width == laidOutWidth)
+			{
+				return;
+			}
+			int wanted = heightFor(textWidth(width));
+			laidOutWidth = width;
+			if (wanted != height)
+			{
+				revalidate();
+			}
+		}
+
+		private int availableWidth()
+		{
+			if (getWidth() > 1)
+			{
+				return getWidth();
+			}
+			for (Container parent = getParent(); parent != null; parent = parent.getParent())
+			{
+				if (parent.getWidth() > 1)
+				{
+					Insets insets = parent.getInsets();
+					return Math.max(1, parent.getWidth() - insets.left - insets.right);
+				}
+			}
+			return PANEL_WIDTH;
+		}
+
+		private int textWidth(int componentWidth)
+		{
+			Insets insets = getInsets();
+			return Math.max(1, componentWidth - insets.left - insets.right);
+		}
+
+		private int heightFor(int width)
+		{
+			Insets insets = getInsets();
+			int lines = wrap(getFontMetrics(getFont()), width).size();
+			return insets.top + insets.bottom + Math.max(1, lines) * getFontMetrics(getFont()).getHeight();
+		}
+
+		private List<String> wrap(FontMetrics metrics, int width)
+		{
+			List<String> lines = new ArrayList<>();
+			if (text.isEmpty())
+			{
+				lines.add("");
+				return lines;
+			}
+			String[] words = text.split(" ", -1);
+			StringBuilder line = new StringBuilder();
+			for (String word : words)
+			{
+				if (line.length() == 0)
+				{
+					line.append(word);
+					continue;
+				}
+				String candidate = line + " " + word;
+				if (metrics.stringWidth(candidate) <= width)
+				{
+					line.append(' ');
+					line.append(word);
+				}
+				else
+				{
+					lines.add(line.toString());
+					line.setLength(0);
+					line.append(word);
+				}
+			}
+			lines.add(line.toString());
+			return lines;
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+			g2.setFont(getFont());
+			g2.setColor(getForeground());
+			Insets insets = getInsets();
+			FontMetrics metrics = g2.getFontMetrics();
+			List<String> lines = wrap(metrics, textWidth(getWidth()));
+			int y = insets.top + metrics.getAscent();
+			for (String line : lines)
+			{
+				g2.drawString(line, insets.left, y);
+				y += metrics.getHeight();
+			}
+			g2.dispose();
+		}
 	}
 
 	/** Short empty-group line. A fixed HTML width makes the card wider than the panel and clips delete. */
@@ -2069,6 +3436,13 @@ public class TileOverlayPanel extends PluginPanel
 		private void setOutline(Color outline)
 		{
 			this.outline = outline;
+		}
+
+		@Override
+		public Dimension getMaximumSize()
+		{
+			Dimension pref = getPreferredSize();
+			return new Dimension(Integer.MAX_VALUE, pref.height);
 		}
 
 		@Override
@@ -2489,10 +3863,14 @@ public class TileOverlayPanel extends PluginPanel
 	}
 
 	/**
-	 * Centres pills and wraps them to the row width. FlowLayout otherwise stays on one line.
+	 * Centres pills and wraps them to the row width. Preferred width stays 1.
+	 * Reporting the ancestor width here makes the scroll view grow by the row insets
+	 * on every rebuild, which walks the pills to the right and clips expanded groups.
 	 */
 	private static final class CenteredFlow extends JPanel
 	{
+		private int laidOutWidth = -1;
+
 		private CenteredFlow()
 		{
 			super(new FlowLayout(FlowLayout.CENTER, 4, 2));
@@ -2503,24 +3881,52 @@ public class TileOverlayPanel extends PluginPanel
 		@Override
 		public Dimension getPreferredSize()
 		{
-			return wrappedSize(availableWidth());
+			return new Dimension(1, wrappedSize(availableWidth()).height);
+		}
+
+		@Override
+		public Dimension getMinimumSize()
+		{
+			return new Dimension(1, getPreferredSize().height);
 		}
 
 		@Override
 		public Dimension getMaximumSize()
 		{
-			Dimension pref = getPreferredSize();
-			return new Dimension(Integer.MAX_VALUE, pref.height);
+			return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+		}
+
+		@Override
+		public void setBounds(int x, int y, int width, int height)
+		{
+			super.setBounds(x, y, width, height);
+			if (width <= 0 || width == laidOutWidth)
+			{
+				return;
+			}
+			int wanted = wrappedSize(width).height;
+			laidOutWidth = width;
+			if (wanted != height)
+			{
+				revalidate();
+			}
 		}
 
 		private int availableWidth()
 		{
-			Container parent = getParent();
-			if (parent != null && parent.getWidth() > 0)
+			if (getWidth() > 0)
 			{
-				return parent.getWidth();
+				return getWidth();
 			}
-			return 150;
+			for (Container parent = getParent(); parent != null; parent = parent.getParent())
+			{
+				if (parent.getWidth() > 0)
+				{
+					Insets insets = parent.getInsets();
+					return Math.max(1, parent.getWidth() - insets.left - insets.right);
+				}
+			}
+			return 220;
 		}
 
 		private Dimension wrappedSize(int width)
@@ -2529,7 +3935,7 @@ public class TileOverlayPanel extends PluginPanel
 			int vgap = 2;
 			int x = 0;
 			int rowHeight = 0;
-			int height = 0;
+			int height = vgap;
 			boolean any = false;
 			for (Component child : getComponents())
 			{
@@ -2556,7 +3962,74 @@ public class TileOverlayPanel extends PluginPanel
 			{
 				height += rowHeight + vgap;
 			}
+			else
+			{
+				height = 0;
+			}
 			return new Dimension(Math.max(1, width), Math.max(1, height));
+		}
+	}
+
+	/**
+	 * Locks each list to the sidebar. Without this, a wide preferred size becomes the
+	 * scroll view and the next rebuild measures that wider view and grows again.
+	 */
+	private static final class ListBody extends JPanel implements Scrollable
+	{
+		private ListBody()
+		{
+			setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			setBorder(new EmptyBorder(0, 8, 12, 8));
+		}
+
+		@Override
+		public Dimension getPreferredSize()
+		{
+			Dimension pref = super.getPreferredSize();
+			return new Dimension(1, pref.height);
+		}
+
+		@Override
+		public Dimension getMinimumSize()
+		{
+			Dimension min = super.getMinimumSize();
+			return new Dimension(1, min.height);
+		}
+
+		@Override
+		public Dimension getPreferredScrollableViewportSize()
+		{
+			Dimension pref = super.getPreferredSize();
+			return new Dimension(PANEL_WIDTH, pref.height);
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			if (orientation == SwingConstants.VERTICAL)
+			{
+				return Math.max(16, visibleRect.height - 16);
+			}
+			return Math.max(16, visibleRect.width - 16);
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth()
+		{
+			return true;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight()
+		{
+			return false;
 		}
 	}
 
@@ -2616,16 +4089,10 @@ public class TileOverlayPanel extends PluginPanel
 	{
 		private EyeButton(boolean shown)
 		{
+			prepareIcon(this);
 			setIcon(shown ? VISIBLE_ICON : INVISIBLE_ICON);
 			setRolloverIcon(shown ? VISIBLE_HOVER_ICON : INVISIBLE_HOVER_ICON);
 			setRolloverEnabled(true);
-			setPreferredSize(new Dimension(22, 22));
-			setFocusPainted(false);
-			setBorderPainted(false);
-			setContentAreaFilled(false);
-			setOpaque(false);
-			setBorder(new EmptyBorder(0, 0, 0, 0));
-			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			setToolTipText(shown ? "Hide group" : "Show group");
 		}
 	}
@@ -2636,12 +4103,21 @@ public class TileOverlayPanel extends PluginPanel
 
 		private ChevronButton(boolean collapsed)
 		{
+			this(collapsed, 22);
+		}
+
+		private ChevronButton(boolean collapsed, int size)
+		{
 			this.collapsed = collapsed;
-			setPreferredSize(new Dimension(22, 22));
+			Dimension box = new Dimension(size, size);
+			setPreferredSize(box);
+			setMinimumSize(box);
+			setMaximumSize(box);
 			setFocusPainted(false);
 			setBorderPainted(false);
 			setContentAreaFilled(false);
 			setOpaque(false);
+			setBorder(new EmptyBorder(0, 0, 0, 0));
 			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			setToolTipText(collapsed ? "Expand" : "Collapse");
 		}
@@ -2666,16 +4142,285 @@ public class TileOverlayPanel extends PluginPanel
 		}
 	}
 
-	private static final class TrashButton extends JButton
+	private static final class CollapseAllButton extends JButton
 	{
-		private TrashButton()
+		private CollapseAllButton()
 		{
-			setPreferredSize(new Dimension(22, 22));
+			Dimension box = new Dimension(16, 16);
+			setPreferredSize(box);
+			setMinimumSize(box);
+			setMaximumSize(box);
 			setFocusPainted(false);
 			setBorderPainted(false);
 			setContentAreaFilled(false);
 			setOpaque(false);
+			setBorder(new EmptyBorder(0, 0, 0, 0));
 			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			setToolTipText("Collapse all");
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setColor(getModel().isRollover() ? Color.WHITE : ColorScheme.LIGHT_GRAY_COLOR);
+			int cx = getWidth() / 2;
+			int top = Math.max(2, getHeight() / 2 - 5);
+			g2.fillPolygon(new int[]{cx - 4, cx + 4, cx}, new int[]{top + 4, top + 4, top}, 3);
+			g2.fillPolygon(new int[]{cx - 4, cx + 4, cx}, new int[]{top + 9, top + 9, top + 5}, 3);
+			g2.dispose();
+		}
+	}
+
+	private static void prepareIcon(JButton button)
+	{
+		Dimension box = new Dimension(22, 22);
+		button.setPreferredSize(box);
+		button.setMinimumSize(box);
+		button.setMaximumSize(box);
+		button.setFocusPainted(false);
+		button.setBorderPainted(false);
+		button.setContentAreaFilled(false);
+		button.setOpaque(false);
+		button.setBorder(new EmptyBorder(0, 0, 0, 0));
+		button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+	}
+
+	/** Keeps each group icon in the same 22px cell. */
+	private static JComponent fixedSlot(JComponent child)
+	{
+		JPanel slot = new JPanel(new GridBagLayout());
+		slot.setOpaque(false);
+		Dimension box = new Dimension(22, 22);
+		slot.setPreferredSize(box);
+		slot.setMinimumSize(box);
+		slot.setMaximumSize(box);
+		slot.add(child);
+		return slot;
+	}
+
+	private static int[] markSquare(JButton button)
+	{
+		int side = 11;
+		int left = Math.max(0, (button.getWidth() - side) / 2);
+		int top = Math.max(0, (button.getHeight() - side) / 2);
+		return new int[]{left, top, left + side - 1, top + side - 1};
+	}
+
+	private static void paintMarkBackdrop(Graphics2D g2, JButton button, boolean marked)
+	{
+		if (!marked)
+		{
+			return;
+		}
+		g2.setColor(new Color(255, 255, 255, 36));
+		g2.fillRoundRect(1, 1, Math.max(0, button.getWidth() - 2), Math.max(0, button.getHeight() - 2), 4, 4);
+	}
+
+	private static Color markColour(JButton button, boolean marked)
+	{
+		if (marked || button.getModel().isRollover())
+		{
+			return Color.WHITE;
+		}
+		return ColorScheme.LIGHT_GRAY_COLOR;
+	}
+
+	private static final class GroupColourSquare extends JPanel
+	{
+		private Color paint = Color.WHITE;
+		private boolean own;
+		private Runnable clear = () -> { };
+		private Runnable choose = () -> { };
+
+		private GroupColourSquare()
+		{
+			setOpaque(false);
+			setPreferredSize(new Dimension(14, 22));
+			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent event)
+				{
+					if (SwingUtilities.isRightMouseButton(event))
+					{
+						clear.run();
+					}
+					else if (SwingUtilities.isLeftMouseButton(event))
+					{
+						choose.run();
+					}
+				}
+			});
+		}
+
+		private void show(Color colour, boolean own, String tip)
+		{
+			paint = colour == null ? Color.WHITE : colour;
+			this.own = own;
+			setToolTipText(tip);
+			repaint();
+		}
+
+		private void onPress(Runnable clear, Runnable choose)
+		{
+			this.clear = clear == null ? () -> { } : clear;
+			this.choose = choose == null ? () -> { } : choose;
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			super.paintComponent(graphics);
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			int size = 11;
+			int x = Math.max(0, (getWidth() - size) / 2);
+			int y = Math.max(0, (getHeight() - size) / 2);
+			g2.setColor(paint);
+			g2.fillRoundRect(x, y, size, size, 3, 3);
+			g2.setColor(own ? Color.WHITE : new Color(255, 255, 255, 70));
+			g2.drawRoundRect(x, y, size, size, 3, 3);
+			g2.dispose();
+		}
+	}
+
+	private static final class BrushButton extends JButton
+	{
+		private final boolean marked;
+
+		private BrushButton(boolean marked)
+		{
+			this.marked = marked;
+			prepareIcon(this);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+			paintMarkBackdrop(g2, this, marked);
+			g2.setColor(markColour(this, marked));
+			int[] square = markSquare(this);
+			int left = square[0];
+			int top = square[1];
+			int right = square[2];
+			int bottom = square[3];
+			g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.drawOval(left + 5, top, 5, 5);
+			g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER));
+			g2.drawPolyline(new int[]{left + 6, left + 3, left + 1}, new int[]{top + 5, top + 8, bottom}, 3);
+			g2.drawPolyline(new int[]{right - 1, left + 6, left + 1}, new int[]{top + 5, top + 8, bottom}, 3);
+			g2.dispose();
+		}
+	}
+
+	private static final class CopyButton extends JButton
+	{
+		private CopyButton()
+		{
+			prepareIcon(this);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+			g2.setColor(markColour(this, false));
+			g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g2.drawRoundRect(8, 4, 8, 9, 2, 2);
+			g2.setColor(new Color(32, 34, 38));
+			g2.fillRoundRect(5, 8, 8, 9, 2, 2);
+			g2.setColor(markColour(this, false));
+			g2.drawRoundRect(5, 8, 8, 9, 2, 2);
+			g2.dispose();
+		}
+	}
+
+	private static final class CornerMarkButton extends JButton
+	{
+		private final boolean marked;
+
+		private CornerMarkButton(boolean marked)
+		{
+			this.marked = marked;
+			prepareIcon(this);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+			paintMarkBackdrop(g2, this, marked);
+			g2.setColor(markColour(this, marked));
+			g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			int[] square = markSquare(this);
+			int left = square[0];
+			int top = square[1];
+			int right = square[2];
+			int bottom = square[3];
+			int arm = 3;
+			g2.drawLine(left, top, left + arm, top);
+			g2.drawLine(left, top, left, top + arm);
+			g2.drawLine(right, top, right - arm, top);
+			g2.drawLine(right, top, right, top + arm);
+			g2.drawLine(left, bottom, left + arm, bottom);
+			g2.drawLine(left, bottom, left, bottom - arm);
+			g2.drawLine(right, bottom, right - arm, bottom);
+			g2.drawLine(right, bottom, right, bottom - arm);
+			g2.dispose();
+		}
+	}
+
+	private static final class MergeMarkButton extends JButton
+	{
+		private final boolean marked;
+
+		private MergeMarkButton(boolean marked)
+		{
+			this.marked = marked;
+			prepareIcon(this);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g2 = (Graphics2D) graphics.create();
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+			paintMarkBackdrop(g2, this, marked);
+			g2.setColor(markColour(this, marked));
+			g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			int[] square = markSquare(this);
+			int left = square[0];
+			int top = square[1];
+			int right = square[2];
+			int bottom = square[3];
+			int mid = (left + right) / 2;
+			int tick = 3;
+			g2.drawLine(left, top, right, top);
+			g2.drawLine(left, bottom, right, bottom);
+			g2.drawLine(left, top, left, bottom);
+			g2.drawLine(right, top, right, bottom);
+			g2.drawLine(mid, top, mid, top + tick);
+			g2.drawLine(mid, bottom - tick, mid, bottom);
+			g2.dispose();
+		}
+	}
+
+	private static final class TrashButton extends JButton
+	{
+		private TrashButton()
+		{
+			prepareIcon(this);
 			setToolTipText("Delete group");
 		}
 

@@ -82,7 +82,6 @@ public class MarkerRepositoryTest
 
 		MarkerSnapshot snapshot = repository.snapshot();
 		Assert.assertFalse(snapshot.isShown(snapshot.getMarkers().get(0)));
-		Assert.assertTrue(snapshot.visiblePacks(point.getPlane()).isEmpty());
 	}
 
 	@Test
@@ -130,7 +129,7 @@ public class MarkerRepositoryTest
 	}
 
 	@Test
-	public void clearingAnObjectLabelLeavesNameAndLeftClickOff()
+	public void aLabelLeavesNameAndLeftClickAlone()
 	{
 		MarkerRepository repository = new MarkerRepository();
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
@@ -142,26 +141,55 @@ public class MarkerRepositoryTest
 		repository.setObjectLabel(ref, "bank");
 		ObjectMarker labelled = repository.getObject(ref);
 		Assert.assertTrue(labelled.hasLabel());
-		Assert.assertFalse(labelled.isShowName());
-		Assert.assertFalse(labelled.isShowLeftClick());
+		Assert.assertTrue(labelled.isShowName());
+		Assert.assertTrue(labelled.isShowLeftClick());
 
-		repository.setObjectShowName(ref, true);
-		repository.setObjectShowLeftClick(ref, true);
+		repository.setObjectShowName(ref, false);
 		Assert.assertFalse(repository.getObject(ref).isShowName());
-		Assert.assertFalse(repository.getObject(ref).isShowLeftClick());
+		Assert.assertTrue(repository.getObject(ref).hasLabel());
+		Assert.assertTrue(repository.getObject(ref).isShowLeftClick());
 
 		repository.setObjectLabel(ref, "   ");
 		ObjectMarker cleared = repository.getObject(ref);
 		Assert.assertFalse(cleared.hasLabel());
 		Assert.assertNull(cleared.getLabel());
 		Assert.assertFalse(cleared.isShowName());
-		Assert.assertFalse(cleared.isShowLeftClick());
+		Assert.assertTrue(cleared.isShowLeftClick());
+		Assert.assertTrue(cleared.isShowOutline());
+	}
 
+	@Test
+	public void mountedDecorationKeepsItsLabelWhenTheConfigurationChanges()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		ObjectFamilies families = new ObjectFamilies();
+		WorldPoint point = new WorldPoint(3200, 3200, 0);
+		int stored = families.canonical(33412);
+		repository.markObject(stored, point, "Xeric's talisman");
+		ObjectRef ref = ObjectRef.of(stored, point);
+		repository.setObjectLabel(ref, "home");
 		repository.setObjectShowName(ref, true);
 		repository.setObjectShowLeftClick(ref, true);
-		Assert.assertTrue(repository.getObject(ref).isShowName());
-		Assert.assertTrue(repository.getObject(ref).isShowLeftClick());
-		Assert.assertTrue(repository.getObject(ref).isShowOutline());
+		repository.setObjectColour(ref, ObjectColourSlot.TEXT, 0x80FFFFFF);
+
+		ObjectMarker found = repository.findMarkedObject(point, 33415, families::canonical);
+		Assert.assertNotNull(found);
+		Assert.assertEquals("home", found.getLabel());
+		Assert.assertTrue(found.isShowName());
+		Assert.assertTrue(found.isShowLeftClick());
+		Assert.assertEquals(Integer.valueOf(0x80FFFFFF), found.getTextColour());
+		Assert.assertNull(repository.findMarkedObject(point, 33416, families::canonical));
+
+		families.index(29150, new int[]{33411, 33412, 33419, -1});
+		Assert.assertTrue(repository.rekeyObjects(families::canonical));
+		ObjectMarker after = repository.findMarkedObject(point, 33414, families::canonical);
+		Assert.assertNotNull(after);
+		Assert.assertEquals("home", after.getLabel());
+		Assert.assertTrue(after.isShowName());
+		Assert.assertTrue(after.isShowLeftClick());
+		Assert.assertEquals(Integer.valueOf(0x80FFFFFF), after.getTextColour());
+		Assert.assertEquals(29150, after.getObjectId());
+		Assert.assertNull(repository.findMarkedObject(point, 33420, families::canonical));
 	}
 
 	@Test
@@ -328,5 +356,231 @@ public class MarkerRepositoryTest
 		Assert.assertNull(repository.get(new WorldPoint(3202, 3201, 0)));
 		Assert.assertNull(repository.get(end));
 		Assert.assertEquals(MarkerStyle.TILE, repository.get(interior).getStyle());
+	}
+
+	@Test
+	public void regionWithoutAnActiveGroupCreatesOne()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint start = new WorldPoint(3200, 3200, 0);
+		WorldPoint end = new WorldPoint(3201, 3200, 0);
+		Assert.assertTrue(repository.markArea(start, end, MarkerStyle.REGION));
+
+		String groupId = repository.get(start).getGroupId();
+		Assert.assertNotNull(groupId);
+		Assert.assertEquals(groupId, repository.get(end).getGroupId());
+		Assert.assertEquals("Region", repository.snapshot().getGroups().get(0).getName());
+		Assert.assertEquals(GroupKind.TILE, repository.snapshot().getGroups().get(0).getKind());
+	}
+
+	@Test
+	public void borderWithoutAnActiveGroupCreatesOne()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint point = new WorldPoint(3200, 3200, 0);
+		Assert.assertTrue(repository.markArea(point, point, MarkerStyle.BORDER));
+		Assert.assertEquals("Border", repository.snapshot().getGroups().get(0).getName());
+		Assert.assertEquals(repository.snapshot().getGroups().get(0).getId(), repository.get(point).getGroupId());
+	}
+
+	@Test
+	public void regionUsesTheActiveTileGroup()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		MarkerGroup active = repository.addGroup("Home");
+		repository.setActiveGroup(active.getId(), true);
+		WorldPoint start = new WorldPoint(3200, 3200, 0);
+		WorldPoint end = new WorldPoint(3201, 3200, 0);
+		Assert.assertTrue(repository.markArea(start, end, MarkerStyle.REGION));
+
+		Assert.assertEquals(active.getId(), repository.get(start).getGroupId());
+		Assert.assertEquals(active.getId(), repository.get(end).getGroupId());
+		Assert.assertEquals(1, repository.snapshot().getGroups().size());
+	}
+
+	@Test
+	public void markedTileStaysUngroupedWithoutAnActiveGroup()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint point = new WorldPoint(3200, 3200, 0);
+		repository.markTile(point);
+		Assert.assertNull(repository.get(point).getGroupId());
+		Assert.assertTrue(repository.snapshot().getGroups().isEmpty());
+	}
+
+	@Test
+	public void objectColourOverrideCanBeCleared()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint point = new WorldPoint(3200, 3200, 0);
+		repository.markObject(5, point, "Pool");
+		ObjectRef ref = ObjectRef.of(5, point);
+		repository.setObjectColour(ref, ObjectColourSlot.OUTLINE, 0xFF112233);
+		repository.setObjectColour(ref, ObjectColourSlot.TEXT, 0xFFFFFFFF);
+
+		ObjectMarker marker = repository.getObject(ref);
+		Assert.assertEquals(Integer.valueOf(0xFF112233), marker.getOutlineColour());
+		Assert.assertEquals(Integer.valueOf(0xFFFFFFFF), marker.getTextColour());
+		Assert.assertNull(marker.getHullColour());
+		Assert.assertNull(marker.getTileColour());
+		Assert.assertNull(marker.getClickboxColour());
+
+		repository.setObjectColour(ref, ObjectColourSlot.OUTLINE, null);
+		Assert.assertNull(repository.getObject(ref).getOutlineColour());
+	}
+
+	@Test
+	public void cornerAndMergeOverridesFollowTheTileAndTheGroup()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint first = new WorldPoint(3200, 3200, 0);
+		WorldPoint second = new WorldPoint(3201, 3200, 0);
+		WorldPoint other = new WorldPoint(3205, 3200, 0);
+		repository.markTile(first);
+		repository.markTile(second);
+		repository.markTile(other);
+		Assert.assertNull(repository.get(first).getCornersOnly());
+		Assert.assertNull(repository.get(first).getMergeBorders());
+
+		MarkerGroup group = repository.addGroup("Home");
+		repository.assign(Collections.singleton(MarkerLocation.fromWorld(first)), group.getId());
+		repository.assign(Collections.singleton(MarkerLocation.fromWorld(second)), group.getId());
+
+		repository.setTileCorners(MarkerLocation.fromWorld(first), Boolean.TRUE);
+		repository.setTileMerge(MarkerLocation.fromWorld(first), Boolean.FALSE);
+		Assert.assertEquals(Boolean.TRUE, repository.get(first).getCornersOnly());
+		Assert.assertEquals(Boolean.FALSE, repository.get(first).getMergeBorders());
+		Assert.assertNull(repository.get(second).getCornersOnly());
+		Assert.assertNull(repository.get(second).getMergeBorders());
+
+		repository.setGroupTileCorners(group.getId(), Boolean.TRUE);
+		repository.setGroupTileMerge(group.getId(), Boolean.TRUE);
+		Assert.assertEquals(Boolean.TRUE, repository.get(first).getCornersOnly());
+		Assert.assertEquals(Boolean.TRUE, repository.get(first).getMergeBorders());
+		Assert.assertEquals(Boolean.TRUE, repository.get(second).getCornersOnly());
+		Assert.assertEquals(Boolean.TRUE, repository.get(second).getMergeBorders());
+		Assert.assertNull(repository.get(other).getCornersOnly());
+		Assert.assertNull(repository.get(other).getMergeBorders());
+
+		repository.setGroupTileCorners(group.getId(), null);
+		Assert.assertNull(repository.get(first).getCornersOnly());
+		Assert.assertNull(repository.get(second).getCornersOnly());
+		Assert.assertEquals(Boolean.TRUE, repository.get(first).getMergeBorders());
+
+		MarkerRepository loaded = new MarkerRepository();
+		loaded.replace(repository.toFile());
+		Assert.assertEquals(MarkerFile.CURRENT_VERSION, loaded.toFile().getVersion());
+		Assert.assertNull(loaded.get(second).getCornersOnly());
+		Assert.assertEquals(Boolean.TRUE, loaded.get(second).getMergeBorders());
+		Assert.assertNull(loaded.get(other).getMergeBorders());
+	}
+
+	@Test
+	public void groupColourIsOnlyForTileGroups()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		MarkerGroup tiles = repository.addGroup("Tiles", GroupKind.TILE);
+		MarkerGroup objects = repository.addGroup("Objects", GroupKind.OBJECT);
+		repository.setGroupColour(tiles.getId(), 0xFF010203);
+		repository.setGroupColour(objects.getId(), 0xFF040506);
+		repository.setGroupFillColour(tiles.getId(), 0x40010203);
+		repository.setGroupFillColour(objects.getId(), 0xFF040506);
+
+		MarkerRepository loaded = new MarkerRepository();
+		loaded.replace(repository.toFile());
+		Assert.assertEquals(Integer.valueOf(0xFF010203), group(loaded, "Tiles").getColour());
+		Assert.assertEquals(Integer.valueOf(0x40010203), group(loaded, "Tiles").getFillColour());
+		Assert.assertNull(group(loaded, "Objects").getColour());
+		Assert.assertNull(group(loaded, "Objects").getFillColour());
+	}
+
+	@Test
+	public void copiedGroupImportsColoursLabelsAndStyles()
+	{
+		MarkerRepository repository = new MarkerRepository();
+		WorldPoint point = new WorldPoint(3200, 3200, 1);
+		repository.markTile(point);
+		MarkerGroup group = repository.addGroup("Route");
+		repository.assign(Collections.singleton(MarkerLocation.fromWorld(point)), group.getId());
+		repository.setGroupColour(group.getId(), 0xC0112233);
+		repository.setGroupFillColour(group.getId(), 0x180A0B0C);
+		MarkerLocation location = MarkerLocation.fromWorld(point);
+		repository.setTileCorners(location, Boolean.TRUE);
+		repository.setTileMerge(location, Boolean.FALSE);
+		repository.setLabel(point, "step");
+		repository.setTileColour(location, TileColourSlot.LABEL, 0xFFABCDEF);
+		repository.setTileColour(location, TileColourSlot.FILL, 0x40010203);
+
+		String text = repository.shareBundle(group.getId()).getText();
+		MarkerRepository other = new MarkerRepository();
+		GroupShare.Result result = other.importShare(GroupKind.TILE, text);
+
+		Assert.assertTrue(result.isChanged());
+		Assert.assertTrue(result.getMessage().contains("Route"));
+		TileMarker imported = other.snapshot().getMarkers().get(0);
+		Assert.assertEquals(MarkerStyle.TILE, imported.getStyle());
+		Assert.assertEquals("step", imported.getLabel());
+		Assert.assertEquals(Boolean.TRUE, imported.getCornersOnly());
+		Assert.assertEquals(Boolean.FALSE, imported.getMergeBorders());
+		Assert.assertEquals(Integer.valueOf(0xFFABCDEF), imported.getLabelColour());
+		Assert.assertEquals(Integer.valueOf(0x40010203), imported.getFillColour());
+		Assert.assertNull(imported.getBorderColour());
+		Assert.assertEquals(Integer.valueOf(0xC0112233), group(other, "Route").getColour());
+		Assert.assertEquals(Integer.valueOf(0x180A0B0C), group(other, "Route").getFillColour());
+		Assert.assertEquals(group(other, "Route").getId(), imported.getGroupId());
+	}
+
+	@Test
+	public void importRejectsTheOtherKindAndLeavesExistingMarks()
+	{
+		MarkerRepository tiles = new MarkerRepository();
+		WorldPoint point = new WorldPoint(3200, 3200, 0);
+		tiles.markTile(point);
+		MarkerGroup tileGroup = tiles.addGroup("Route");
+		tiles.assign(Collections.singleton(MarkerLocation.fromWorld(point)), tileGroup.getId());
+		String tileText = tiles.shareBundle(tileGroup.getId()).getText();
+
+		MarkerRepository objects = new MarkerRepository();
+		objects.markObject(5, point, "Bank");
+		MarkerGroup objectGroup = objects.addGroup("Bank", GroupKind.OBJECT);
+		objects.assignObjects(Collections.singleton(ObjectRef.of(5, point)), objectGroup.getId());
+		objects.setObjectLabel(ObjectRef.of(5, point), "chest");
+		String objectText = objects.shareBundle(objectGroup.getId()).getText();
+
+		GroupShare.Result wrongTiles = tiles.importShare(GroupKind.TILE, objectText);
+		Assert.assertFalse(wrongTiles.isChanged());
+		Assert.assertTrue(wrongTiles.getMessage().contains("Object Groups"));
+		Assert.assertEquals(1, tiles.snapshot().getGroups().size());
+
+		GroupShare.Result wrongObjects = objects.importShare(GroupKind.OBJECT, tileText);
+		Assert.assertFalse(wrongObjects.isChanged());
+		Assert.assertTrue(wrongObjects.getMessage().contains("Tile Groups"));
+		Assert.assertEquals(1, objects.snapshot().getObjects().size());
+
+		GroupShare.Result again = new MarkerRepository().importShare(GroupKind.TILE, tileText);
+		Assert.assertTrue(again.isChanged());
+		GroupShare.Result duplicate = tiles.importShare(GroupKind.TILE, tileText);
+		Assert.assertFalse(duplicate.isChanged());
+		Assert.assertTrue(duplicate.getMessage().contains("already marked"));
+		Assert.assertEquals(1, tiles.snapshot().getMarkers().size());
+
+		MarkerRepository fresh = new MarkerRepository();
+		fresh.importShare(GroupKind.OBJECT, objectText);
+		ObjectMarker imported = fresh.snapshot().getObjects().get(0);
+		Assert.assertEquals("chest", imported.getLabel());
+		Assert.assertEquals("Bank", imported.getName());
+		Assert.assertEquals(5, imported.getObjectId());
+	}
+
+	private static MarkerGroup group(MarkerRepository repository, String name)
+	{
+		for (MarkerGroup group : repository.snapshot().getGroups())
+		{
+			if (name.equals(group.getName()))
+			{
+				return group;
+			}
+		}
+		return null;
 	}
 }

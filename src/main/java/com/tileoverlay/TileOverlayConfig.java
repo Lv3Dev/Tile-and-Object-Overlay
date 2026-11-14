@@ -41,15 +41,15 @@ public interface TileOverlayConfig extends Config
 	}
 
 	@ConfigSection(
-		name = "Objects",
-		description = "Colours, widths, and text for marked objects. Outline, hull, tile, and clickbox are toggled on each object in the side panel.",
+		name = "Object Markers",
+		description = "Default colours, widths, and text for marked objects. Each object can use its own colours from the side panel.",
 		position = 1
 	)
 	String objectsSection = "objects";
 
 	@ConfigSection(
-		name = "Current Tile",
-		description = "The true tile the player is standing on",
+		name = "True Tile",
+		description = "The tile the player is standing on",
 		position = 2
 	)
 	String currentSection = "current";
@@ -130,6 +130,18 @@ public interface TileOverlayConfig extends Config
 	default boolean showSidePanel()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "drawMinimapMarkers",
+		name = "Minimap markers",
+		description = "Draws a minimap marker for every marked tile, region, and border. This is one switch for all of them.",
+		position = 6,
+		section = generalSection
+	)
+	default boolean drawMinimapMarkers()
+	{
+		return false;
 	}
 
 	@ConfigItem(
@@ -411,6 +423,31 @@ public interface TileOverlayConfig extends Config
 		return Color.WHITE;
 	}
 
+	@ConfigItem(
+		keyName = "labelOutline",
+		name = "Label outline",
+		description = "Draws an outline around tile label text so it stays readable on the ground.",
+		position = 3,
+		section = markerSection
+	)
+	default boolean labelOutline()
+	{
+		return true;
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "labelOutlineColour",
+		name = "Label outline colour",
+		description = "Colour of the outline around tile label text.",
+		position = 4,
+		section = markerSection
+	)
+	default Color labelOutlineColour()
+	{
+		return Color.BLACK;
+	}
+
 	@Alpha
 	@ConfigItem(
 		keyName = "tileBorderColour",
@@ -640,7 +677,7 @@ public interface TileOverlayConfig extends Config
 	@ConfigItem(
 		keyName = "objectOutlineColour",
 		name = "Outline colour",
-		description = "Colour of the model outline.",
+		description = "Model outline colour used unless the object has its own.",
 		position = 0,
 		section = objectsSection
 	)
@@ -666,7 +703,7 @@ public interface TileOverlayConfig extends Config
 	@ConfigItem(
 		keyName = "objectHullColour",
 		name = "Hull colour",
-		description = "Colour of the convex hull.",
+		description = "Convex hull colour used unless the object has its own.",
 		position = 3,
 		section = objectsSection
 	)
@@ -692,7 +729,7 @@ public interface TileOverlayConfig extends Config
 	@ConfigItem(
 		keyName = "objectClickboxColour",
 		name = "Clickbox colour",
-		description = "Colour of the clickbox.",
+		description = "Clickbox colour used unless the object has its own.",
 		position = 6,
 		section = objectsSection
 	)
@@ -718,7 +755,7 @@ public interface TileOverlayConfig extends Config
 	@ConfigItem(
 		keyName = "objectTileColour",
 		name = "Tile colour",
-		description = "Colour of the tile under the object.",
+		description = "Tile colour used unless the object has its own.",
 		position = 9,
 		section = objectsSection
 	)
@@ -755,8 +792,8 @@ public interface TileOverlayConfig extends Config
 	@Alpha
 	@ConfigItem(
 		keyName = "objectTextColour",
-		name = "Label text colour",
-		description = "Colour of text drawn on a marked object.",
+		name = "Text colour",
+		description = "Colour of the name, left-click, and label unless the object has its own.",
 		position = 13,
 		section = objectsSection
 	)
@@ -789,6 +826,31 @@ public interface TileOverlayConfig extends Config
 	default int objectTextOffset()
 	{
 		return 0;
+	}
+
+	@ConfigItem(
+		keyName = "objectSelected",
+		name = "Object selected",
+		description = "Draw an outline on an object while it is selected in the side panel.",
+		position = 16,
+		section = objectsSection
+	)
+	default boolean objectSelected()
+	{
+		return false;
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "objectSelectedColour",
+		name = "Object selected colour",
+		description = "Outline colour of an object selected in the side panel.",
+		position = 17,
+		section = objectsSection
+	)
+	default Color objectSelectedColour()
+	{
+		return Color.WHITE;
 	}
 
 	@ConfigSection(

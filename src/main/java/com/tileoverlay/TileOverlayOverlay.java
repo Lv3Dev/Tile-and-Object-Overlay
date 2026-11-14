@@ -22,8 +22,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +71,7 @@ public class TileOverlayOverlay extends Overlay
 	private final MarkerRepository repository;
 	private final ObjectFamilies families;
 	private final ModelOutlineRenderer modelOutlineRenderer;
+	private final ObjectLeftClick leftClick;
 
 	private WorldPoint pendingStart;
 	private MarkerStyle pendingStyle;
@@ -90,13 +93,14 @@ public class TileOverlayOverlay extends Overlay
 	private boolean objectRenderFailed;
 
 	@Inject
-	TileOverlayOverlay(Client client, TileOverlayConfig config, MarkerRepository repository, ObjectFamilies families, ModelOutlineRenderer modelOutlineRenderer)
+	TileOverlayOverlay(Client client, TileOverlayConfig config, MarkerRepository repository, ObjectFamilies families, ModelOutlineRenderer modelOutlineRenderer, ObjectLeftClick leftClick)
 	{
 		this.client = client;
 		this.config = config;
 		this.repository = repository;
 		this.families = families;
 		this.modelOutlineRenderer = modelOutlineRenderer;
+		this.leftClick = leftClick;
 		setPosition(OverlayPosition.DYNAMIC);
 		setLayer(OverlayLayer.ABOVE_SCENE);
 		setPriority(PRIORITY_MED);
@@ -161,6 +165,8 @@ public class TileOverlayOverlay extends Overlay
 			MarkerSnapshot snapshot = repository.snapshot();
 			int plane = viewPlane(player);
 			Set<Long> merged = mergedPacks(snapshot, plane);
+			Map<String, Integer> groupColours = groupColours(snapshot);
+			Map<String, Integer> groupFills = groupFills(snapshot);
 
 			for (TileMarker marker : snapshot.getMarkers())
 			{
@@ -168,7 +174,7 @@ public class TileOverlayOverlay extends Overlay
 				{
 					continue;
 				}
-				renderMarker(graphics, marker, merged, false);
+				renderMarker(graphics, marker, merged, false, groupColours, groupFills);
 			}
 			for (TileMarker marker : snapshot.getMarkers())
 			{
@@ -187,14 +193,19 @@ public class TileOverlayOverlay extends Overlay
 
 			for (TileMarker marker : snapshot.getMarkers())
 			{
-				if (!snapshot.getHighlighted().contains(marker.location()))
+				if (marker.getPlane() != plane
+					|| !snapshot.isShown(marker)
+					|| !snapshot.getHighlighted().contains(marker.location()))
 				{
 					continue;
 				}
-				renderMarker(graphics, marker, merged, true);
+				renderMarker(graphics, marker, merged, true, groupColours, groupFills);
 			}
 
-			renderObjects(graphics, snapshot, plane, true);
+			if (config.objectSelected())
+			{
+				renderObjects(graphics, snapshot, plane, true);
+			}
 
 			if ((config.drawBelowPlayer() || config.drawBelowNpcs()) && client.isGpu())
 			{
@@ -224,7 +235,7 @@ public class TileOverlayOverlay extends Overlay
 				continue;
 			}
 			MarkerStyle style = marker.getStyle() == null ? MarkerStyle.TILE : marker.getStyle();
-			if (!MarkerLooks.merge(config, style))
+			if (!MarkerLooks.merge(config, style, marker.getMergeBorders()))
 			{
 				continue;
 			}
@@ -233,7 +244,7 @@ public class TileOverlayOverlay extends Overlay
 		return packs;
 	}
 
-	private void renderMarker(Graphics2D graphics, TileMarker marker, Set<Long> merged, boolean selection)
+	private void renderMarker(Graphics2D graphics, TileMarker marker, Set<Long> merged, boolean selection, Map<String, Integer> groupColours, Map<String, Integer> groupFills)
 	{
 		WorldPoint template = marker.location().toWorldPoint();
 		if (!inView(template))
@@ -243,7 +254,7 @@ public class TileOverlayOverlay extends Overlay
 
 		TilePoint tile = new TilePoint(template.getX(), template.getY(), template.getPlane());
 		MarkerStyle style = marker.getStyle() == null ? MarkerStyle.TILE : marker.getStyle();
-		boolean merge = !selection && MarkerLooks.merge(config, style);
+		boolean merge = !selection && MarkerLooks.merge(config, style, marker.getMergeBorders());
 		Set<Long> occupied = merge ? merged : Collections.singleton(tile.pack());
 		boolean south = TileGeometry.isOuter(occupied, tile.getX(), tile.getY(), tile.getPlane(), TileGeometry.Edge.SOUTH);
 		boolean east = TileGeometry.isOuter(occupied, tile.getX(), tile.getY(), tile.getPlane(), TileGeometry.Edge.EAST);
@@ -266,10 +277,12 @@ public class TileOverlayOverlay extends Overlay
 		}
 		else
 		{
-			border = MarkerLooks.border(config, style);
-			fill = withOpacity(MarkerLooks.fill(config, style), MarkerLooks.fillOpacity(config, style));
+			Integer groupColour = marker.getGroupId() == null ? null : groupColours.get(marker.getGroupId());
+			Integer groupFill = marker.getGroupId() == null ? null : groupFills.get(marker.getGroupId());
+			border = MarkerLooks.tileBorder(config, style, marker.getBorderColour(), groupColour);
+			fill = MarkerLooks.tileFill(config, style, marker.getFillColour(), groupColour, groupFill);
 			stroke = MARKER_STROKE;
-			corners = MarkerLooks.cornersOnly(config, style);
+			corners = MarkerLooks.cornersOnly(config, style, marker.getCornersOnly());
 			cornerSize = MarkerLooks.cornerSize(config, style);
 		}
 
@@ -297,14 +310,73 @@ public class TileOverlayOverlay extends Overlay
 			return;
 		}
 		graphics.setFont(tileLabelFont(config.labelTextSize()));
+		Color colour = MarkerLooks.tileLabel(config, marker.getLabelColour());
 		for (LocalPoint local : localsFor(marker.location().toWorldPoint()))
 		{
 			Point point = Perspective.getCanvasTextLocation(client, graphics, local, label, 0);
 			if (point != null)
 			{
-				OverlayUtil.renderTextLocation(graphics, point, label, config.labelTextColour());
+				drawTileLabel(graphics, point, label, colour);
 			}
 		}
+	}
+
+	private void drawTileLabel(Graphics2D graphics, Point point, String label, Color colour)
+	{
+		if (colour == null)
+		{
+			return;
+		}
+		if (!config.labelOutline())
+		{
+			OverlayUtil.renderTextLocation(graphics, point, label, colour);
+			return;
+		}
+		Color edge = config.labelOutlineColour();
+		int x = point.getX();
+		int y = point.getY();
+		if (edge != null)
+		{
+			graphics.setColor(edge);
+			for (int dx = -1; dx <= 1; dx++)
+			{
+				for (int dy = -1; dy <= 1; dy++)
+				{
+					if (dx != 0 || dy != 0)
+					{
+						graphics.drawString(label, x + dx, y + dy);
+					}
+				}
+			}
+		}
+		graphics.setColor(colour);
+		graphics.drawString(label, x, y);
+	}
+
+	private static Map<String, Integer> groupColours(MarkerSnapshot snapshot)
+	{
+		Map<String, Integer> colours = new HashMap<>();
+		for (MarkerGroup group : snapshot.getGroups())
+		{
+			if (group != null && group.getId() != null && group.getColour() != null)
+			{
+				colours.put(group.getId(), group.getColour());
+			}
+		}
+		return colours;
+	}
+
+	private static Map<String, Integer> groupFills(MarkerSnapshot snapshot)
+	{
+		Map<String, Integer> colours = new HashMap<>();
+		for (MarkerGroup group : snapshot.getGroups())
+		{
+			if (group != null && group.getId() != null && group.getFillColour() != null)
+			{
+				colours.put(group.getId(), group.getFillColour());
+			}
+		}
+		return colours;
 	}
 
 	private void renderPreview(Graphics2D graphics, Player player)
@@ -569,7 +641,7 @@ public class TileOverlayOverlay extends Overlay
 		graphics.drawLine(x1, y1, x, y);
 	}
 
-	private int viewPlane(Player player)
+	int viewPlane(Player player)
 	{
 		LocalPoint local = player.getLocalLocation();
 		if (local != null)
@@ -584,7 +656,7 @@ public class TileOverlayOverlay extends Overlay
 		return world == null ? 0 : world.getPlane();
 	}
 
-	private boolean inView(WorldPoint template)
+	boolean inView(WorldPoint template)
 	{
 		Player player = client.getLocalPlayer();
 		if (player == null || template == null)
@@ -610,7 +682,7 @@ public class TileOverlayOverlay extends Overlay
 			&& Math.abs(template.getY() - playerPoint.getY()) <= VIEW_RANGE;
 	}
 
-	private List<LocalPoint> localsFor(WorldPoint template)
+	List<LocalPoint> localsFor(WorldPoint template)
 	{
 		List<LocalPoint> locals = new ArrayList<>(1);
 		WorldView top = client.getTopLevelWorldView();
@@ -858,7 +930,7 @@ public class TileOverlayOverlay extends Overlay
 			boolean selected = snapshot.getHighlightedObjects().contains(marker.ref());
 			if (selectionPass)
 			{
-				if (!selected)
+				if (!selected || !snapshot.isShown(marker))
 				{
 					continue;
 				}
@@ -899,7 +971,7 @@ public class TileOverlayOverlay extends Overlay
 		if (marker.isShowTile())
 		{
 			Polygon poly = object.getCanvasTilePoly();
-			Color colour = config.objectTileColour();
+			Color colour = chosenColour(marker.getTileColour(), config.objectTileColour());
 			if (poly != null && colour != null)
 			{
 				graphics.setColor(colour);
@@ -910,15 +982,15 @@ public class TileOverlayOverlay extends Overlay
 		}
 		if (marker.isShowClickbox())
 		{
-			strokeShape(graphics, object.getClickbox(), config.objectClickboxColour(), config.objectClickboxWidth());
+			strokeShape(graphics, object.getClickbox(), chosenColour(marker.getClickboxColour(), config.objectClickboxColour()), config.objectClickboxWidth());
 		}
 		if (marker.isShowHull())
 		{
-			strokeShape(graphics, hull(object), config.objectHullColour(), config.objectHullWidth());
+			strokeShape(graphics, hull(object), chosenColour(marker.getHullColour(), config.objectHullColour()), config.objectHullWidth());
 		}
 		if (marker.isShowOutline())
 		{
-			Color colour = config.objectOutlineColour();
+			Color colour = chosenColour(marker.getOutlineColour(), config.objectOutlineColour());
 			if (colour != null)
 			{
 				modelOutlineRenderer.drawOutline(object, config.objectOutlineWidth(), colour, 0);
@@ -928,42 +1000,34 @@ public class TileOverlayOverlay extends Overlay
 		if (!lines.isEmpty())
 		{
 			graphics.setFont(objectLabelFont(config.objectTextSize()));
-			drawObjectLines(graphics, object, lines);
+			drawObjectLines(graphics, object, lines, chosenColour(marker.getTextColour(), config.objectTextColour()));
 		}
 	}
 
-	/**
-	 * A label wins. When name and left-click are both on, the name is drawn
-	 * above the left-click option. Saving a label turns both toggles off.
-	 */
 	private List<String> objectLines(TileObject object, ObjectMarker marker)
 	{
-		List<String> lines = new ArrayList<>(2);
+		List<String> lines = new ArrayList<>(3);
+		String action = marker.isShowLeftClick() ? leftClickOption(object) : null;
+		String name = marker.isShowName() ? objectDisplayName(marker, object.getId()) : null;
+		if (name != null && action != null
+			&& (action.equalsIgnoreCase(name) || action.toLowerCase().endsWith(" " + name.toLowerCase())))
+		{
+			lines.add(action);
+		}
+		else
+		{
+			if (name != null)
+			{
+				lines.add(name);
+			}
+			if (action != null)
+			{
+				lines.add(action);
+			}
+		}
 		if (marker.hasLabel())
 		{
 			lines.add(marker.getLabel().trim());
-			return lines;
-		}
-		String action = marker.isShowLeftClick() ? leftClickOption(object.getId()) : null;
-		String name = marker.isShowName() ? objectDisplayName(marker, object.getId()) : null;
-		if (name != null && action != null)
-		{
-			if (action.equalsIgnoreCase(name) || action.toLowerCase().endsWith(" " + name.toLowerCase()))
-			{
-				lines.add(action);
-				return lines;
-			}
-			lines.add(name);
-			lines.add(action);
-			return lines;
-		}
-		if (name != null)
-		{
-			lines.add(name);
-		}
-		else if (action != null)
-		{
-			lines.add(action);
 		}
 		return lines;
 	}
@@ -979,27 +1043,9 @@ public class TileOverlayOverlay extends Overlay
 		return definition == null ? null : cleanName(definition.getName());
 	}
 
-	private String leftClickOption(int objectId)
+	private String leftClickOption(TileObject object)
 	{
-		ObjectComposition definition = composition(objectId);
-		if (definition == null)
-		{
-			return null;
-		}
-		String[] actions = definition.getActions();
-		if (actions == null)
-		{
-			return null;
-		}
-		for (String action : actions)
-		{
-			String cleaned = cleanName(action);
-			if (cleaned != null)
-			{
-				return cleaned;
-			}
-		}
-		return null;
+		return leftClick.option(object, composition(object.getId()));
 	}
 
 	private ObjectComposition composition(int objectId)
@@ -1048,12 +1094,20 @@ public class TileOverlayOverlay extends Overlay
 		{
 			shape = object.getCanvasTilePoly();
 		}
-		strokeShape(graphics, shape, SELECT_BORDER, 2);
+		strokeShape(graphics, shape, config.objectSelectedColour(), 2);
 	}
 
-	private void drawObjectLines(Graphics2D graphics, TileObject object, List<String> lines)
+	private static Color chosenColour(Integer custom, Color fallback)
 	{
-		Color colour = config.objectTextColour();
+		if (custom != null)
+		{
+			return new Color(custom, true);
+		}
+		return fallback;
+	}
+
+	private void drawObjectLines(Graphics2D graphics, TileObject object, List<String> lines, Color colour)
+	{
 		if (colour == null || lines == null || lines.isEmpty())
 		{
 			return;
@@ -1184,9 +1238,8 @@ public class TileOverlayOverlay extends Overlay
 	}
 
 	/**
-	 * The scene object a menu entry is pointing at, including wall decorations
-	 * such as a mounted talisman. The id is the scene object's own id, which
-	 * stays stable when the menu entry carries a transformed id instead.
+	 * Scene object for a menu entry. The id is the scene object's own id,
+	 * which stays put when the entry carries a transformed id instead.
 	 */
 	public LocatedObject locateMenuObject(int worldViewId, int sceneX, int sceneY, int menuObjectId)
 	{
@@ -1301,10 +1354,6 @@ public class TileOverlayOverlay extends Overlay
 	private WorldPoint worldFromScene(WorldView view, int sceneX, int sceneY)
 	{
 		LocalPoint local = LocalPoint.fromScene(sceneX, sceneY, view);
-		if (local == null)
-		{
-			return null;
-		}
 		WorldPoint template = WorldPoint.fromLocalInstance(client, local);
 		if (template != null)
 		{
@@ -1493,15 +1542,5 @@ public class TileOverlayOverlay extends Overlay
 		graphics.setColor(colour);
 		graphics.setStroke(new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 		graphics.draw(shape);
-	}
-
-	private static Color withOpacity(Color colour, int opacity)
-	{
-		if (colour == null)
-		{
-			return null;
-		}
-		int alpha = Math.max(0, Math.min(255, opacity));
-		return new Color(colour.getRed(), colour.getGreen(), colour.getBlue(), alpha);
 	}
 }

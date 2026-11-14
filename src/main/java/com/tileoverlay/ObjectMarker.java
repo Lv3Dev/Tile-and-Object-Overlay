@@ -21,24 +21,21 @@ public class ObjectMarker
 	private String label;
 	private String groupId;
 	private String name;
-	/**
-	 * Draw the object name when there is no label. A label turns this off,
-	 * and clearing the label leaves it off.
-	 */
 	private boolean showName;
-	/**
-	 * Draw the object's left-click option when there is no label. A label turns
-	 * this off, and clearing the label leaves it off.
-	 */
 	private boolean showLeftClick;
-	/**
-	 * Model outline. New marks turn this on. Files saved before highlight
-	 * flags existed are given the same default when they load.
-	 */
 	private boolean showOutline;
 	private boolean showHull;
 	private boolean showTile;
 	private boolean showClickbox;
+	/**
+	 * Packed ARGB. Null uses the matching default colour from the Object Markers settings.
+	 * {@link #textColour} is the name, the left-click option, and the label.
+	 */
+	private Integer textColour;
+	private Integer outlineColour;
+	private Integer hullColour;
+	private Integer tileColour;
+	private Integer clickboxColour;
 
 	public ObjectRef ref()
 	{
@@ -54,7 +51,8 @@ public class ObjectMarker
 	{
 		return new ObjectMarker(
 			objectId, regionId, regionX, regionY, plane, label, groupId, name,
-			showName, showLeftClick, showOutline, showHull, showTile, showClickbox);
+			showName, showLeftClick, showOutline, showHull, showTile, showClickbox,
+			textColour, outlineColour, hullColour, tileColour, clickboxColour);
 	}
 
 	public static ObjectMarker create(ObjectRef ref, String name)
@@ -73,6 +71,11 @@ public class ObjectMarker
 			true,
 			false,
 			false,
-			false);
+			false,
+			null,
+			null,
+			null,
+			null,
+			null);
 	}
 }

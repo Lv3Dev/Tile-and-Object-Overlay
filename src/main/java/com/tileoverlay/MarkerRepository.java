@@ -213,6 +213,7 @@ public class MarkerRepository
 		{
 			return false;
 		}
+		List<MarkerLocation> created = new ArrayList<>();
 		for (TilePoint tile : tiles)
 		{
 			WorldPoint worldPoint = new WorldPoint(tile.getX(), tile.getY(), tile.getPlane());
@@ -220,13 +221,31 @@ public class MarkerRepository
 			TileMarker existing = markers.get(location);
 			if (existing == null)
 			{
-				TileMarker created = TileMarker.create(location, style);
-				assignActive(created);
-				markers.put(location, created);
+				markers.put(location, TileMarker.create(location, style));
+				created.add(location);
 			}
 			else
 			{
 				existing.setStyle(style);
+			}
+		}
+		// A region or border is always in a group. New tiles join the active tile
+		// group, or a new group named for the style. Tiles already marked keep theirs.
+		if (!created.isEmpty())
+		{
+			String groupId = activeId(GroupKind.TILE);
+			if (groupId == null)
+			{
+				String base = style == MarkerStyle.BORDER ? "Border" : "Region";
+				groupId = addGroup(base, GroupKind.TILE).getId();
+			}
+			for (MarkerLocation location : created)
+			{
+				TileMarker marker = markers.get(location);
+				if (marker != null)
+				{
+					marker.setGroupId(groupId);
+				}
 			}
 		}
 		return true;
@@ -323,6 +342,320 @@ public class MarkerRepository
 		marker.setLabel(label);
 	}
 
+	public synchronized void setTileCorners(MarkerLocation location, Boolean cornersOnly)
+	{
+		TileMarker marker = tile(location);
+		if (marker != null)
+		{
+			marker.setCornersOnly(cornersOnly);
+		}
+	}
+
+	public synchronized void setTileMerge(MarkerLocation location, Boolean mergeBorders)
+	{
+		TileMarker marker = tile(location);
+		if (marker != null)
+		{
+			marker.setMergeBorders(mergeBorders);
+		}
+	}
+
+	public synchronized void setGroupTileCorners(String groupId, Boolean cornersOnly)
+	{
+		applyGroupTileFlag(groupId, cornersOnly, true);
+	}
+
+	public synchronized void setGroupTileMerge(String groupId, Boolean mergeBorders)
+	{
+		applyGroupTileFlag(groupId, mergeBorders, false);
+	}
+
+	public synchronized void setTileColour(MarkerLocation location, TileColourSlot slot, Integer rgb)
+	{
+		TileMarker marker = tile(location);
+		if (marker == null || slot == null)
+		{
+			return;
+		}
+		switch (slot)
+		{
+			case TILE:
+				marker.setBorderColour(rgb);
+				break;
+			case FILL:
+				marker.setFillColour(rgb);
+				break;
+			case LABEL:
+				marker.setLabelColour(rgb);
+				break;
+			default:
+				break;
+		}
+	}
+
+	/** Tile groups only. Null clears the border and tiles go back to their style settings. */
+	public synchronized void setGroupColour(String groupId, Integer rgb)
+	{
+		MarkerGroup group = tileGroup(groupId);
+		if (group != null)
+		{
+			group.setColour(rgb);
+		}
+	}
+
+	/** Tile groups only. Null clears the fill override. */
+	public synchronized void setGroupFillColour(String groupId, Integer rgb)
+	{
+		MarkerGroup group = tileGroup(groupId);
+		if (group != null)
+		{
+			group.setFillColour(rgb);
+		}
+	}
+
+	private MarkerGroup tileGroup(String groupId)
+	{
+		MarkerGroup group = groups.get(groupId);
+		if (group == null || kindOf(group) != GroupKind.TILE)
+		{
+			return null;
+		}
+		return group;
+	}
+
+	public synchronized GroupShare.Bundle shareBundle(String groupId)
+	{
+		MarkerGroup group = groups.get(groupId);
+		if (group == null)
+		{
+			return null;
+		}
+		GroupKind kind = kindOf(group);
+		List<TileMarker> tiles = new ArrayList<>();
+		List<ObjectMarker> sharedObjects = new ArrayList<>();
+		if (kind == GroupKind.OBJECT)
+		{
+			for (ObjectMarker marker : objects.values())
+			{
+				if (groupId.equals(marker.getGroupId()))
+				{
+					ObjectMarker copy = marker.copy();
+					copy.setGroupId(null);
+					sharedObjects.add(copy);
+				}
+			}
+		}
+		else
+		{
+			for (TileMarker marker : markers.values())
+			{
+				if (groupId.equals(marker.getGroupId()))
+				{
+					TileMarker copy = marker.copy();
+					copy.setGroupId(null);
+					tiles.add(copy);
+				}
+			}
+		}
+		int count = kind == GroupKind.OBJECT ? sharedObjects.size() : tiles.size();
+		String noun = kind == GroupKind.OBJECT ? "object" : "tile";
+		String counted = count == 1 ? "1 " + noun : count + " " + noun + "s";
+		if (count == 0)
+		{
+			counted = "no " + noun + "s";
+		}
+		String where = kind == GroupKind.OBJECT ? "Object Groups" : "Tile Groups";
+		String notice = "Copied " + noun + " group \"" + group.getName() + "\" (" + counted + "). Import it from " + where + ".";
+		return new GroupShare.Bundle(GroupShare.encode(group, tiles, sharedObjects), notice);
+	}
+
+	public synchronized GroupShare.Result importShare(GroupKind expected, String text)
+	{
+		GroupKind wanted = expected == null ? GroupKind.TILE : expected;
+		String trimmed = text == null ? "" : text.trim();
+		if (trimmed.isEmpty())
+		{
+			return GroupShare.Result.message("Paste a copied group. Use the copy icon on a group, then import it here.");
+		}
+		GroupShare.Decoded decoded = GroupShare.decode(trimmed);
+		if (decoded.isNewer())
+		{
+			return GroupShare.Result.message("That group was copied by a newer version of this plugin.");
+		}
+		GroupShare share = decoded.getShare();
+		if (share == null)
+		{
+			return GroupShare.Result.message("That text is not a copied group. Use the copy icon on a group, then import it here.");
+		}
+		if (share.getKind() != wanted)
+		{
+			if (share.getKind() == GroupKind.OBJECT)
+			{
+				return GroupShare.Result.message("That is an object group. Open Object Groups and import it there.");
+			}
+			return GroupShare.Result.message("That is a tile group. Open Tile Groups and import it there.");
+		}
+		if (wanted == GroupKind.OBJECT)
+		{
+			return importObjects(share);
+		}
+		return importTiles(share);
+	}
+
+	private GroupShare.Result importTiles(GroupShare share)
+	{
+		List<TileMarker> incoming = share.getTiles();
+		if (incoming.isEmpty())
+		{
+			MarkerGroup created = storeNewGroup(share.getName(), GroupKind.TILE, share.getColour(), share.getFillColour());
+			return GroupShare.Result.imported("Imported \"" + created.getName() + "\" with no tiles.");
+		}
+		int skipped = 0;
+		int usable = 0;
+		Set<MarkerLocation> seen = new HashSet<>();
+		List<TileMarker> accepted = new ArrayList<>();
+		for (TileMarker marker : incoming)
+		{
+			if (marker == null || marker.getStyle() == null)
+			{
+				continue;
+			}
+			MarkerLocation location = marker.location();
+			if (!seen.add(location))
+			{
+				continue;
+			}
+			usable++;
+			if (markers.containsKey(location))
+			{
+				skipped++;
+				continue;
+			}
+			accepted.add(marker);
+		}
+		if (accepted.isEmpty())
+		{
+			if (skipped > 0 && skipped == usable)
+			{
+				return GroupShare.Result.message("Every tile in that group is already marked, so nothing was imported.");
+			}
+			return GroupShare.Result.message("That group had nothing that could be imported.");
+		}
+		MarkerGroup created = storeNewGroup(share.getName(), GroupKind.TILE, share.getColour(), share.getFillColour());
+		for (TileMarker marker : accepted)
+		{
+			TileMarker copy = marker.copy();
+			copy.setGroupId(created.getId());
+			markers.put(copy.location(), copy);
+		}
+		return GroupShare.Result.imported(importedMessage(created.getName(), accepted.size(), skipped, "tile"));
+	}
+
+	private GroupShare.Result importObjects(GroupShare share)
+	{
+		List<ObjectMarker> incoming = share.getObjects();
+		if (incoming.isEmpty())
+		{
+			MarkerGroup created = storeNewGroup(share.getName(), GroupKind.OBJECT, null, null);
+			return GroupShare.Result.imported("Imported \"" + created.getName() + "\" with no objects.");
+		}
+		int skipped = 0;
+		int usable = 0;
+		Set<ObjectRef> seen = new HashSet<>();
+		List<ObjectMarker> accepted = new ArrayList<>();
+		for (ObjectMarker marker : incoming)
+		{
+			if (marker == null || marker.getObjectId() < 0)
+			{
+				continue;
+			}
+			ObjectRef ref = marker.ref();
+			if (!seen.add(ref))
+			{
+				continue;
+			}
+			usable++;
+			if (objects.containsKey(ref))
+			{
+				skipped++;
+				continue;
+			}
+			accepted.add(marker);
+		}
+		if (accepted.isEmpty())
+		{
+			if (skipped > 0 && skipped == usable)
+			{
+				return GroupShare.Result.message("Every object in that group is already marked, so nothing was imported.");
+			}
+			return GroupShare.Result.message("That group had nothing that could be imported.");
+		}
+		MarkerGroup created = storeNewGroup(share.getName(), GroupKind.OBJECT, null, null);
+		for (ObjectMarker marker : accepted)
+		{
+			ObjectMarker copy = marker.copy();
+			copy.setGroupId(created.getId());
+			objects.put(copy.ref(), copy);
+		}
+		return GroupShare.Result.imported(importedMessage(created.getName(), accepted.size(), skipped, "object"));
+	}
+
+	private MarkerGroup storeNewGroup(String name, GroupKind kind, Integer colour, Integer fillColour)
+	{
+		MarkerGroup created = addGroup(name, kind);
+		MarkerGroup stored = groups.get(created.getId());
+		if (kind == GroupKind.TILE)
+		{
+			stored.setColour(colour);
+			stored.setFillColour(fillColour);
+		}
+		return stored;
+	}
+
+	private static String importedMessage(String name, int added, int skipped, String noun)
+	{
+		String addedText = added == 1 ? "1 " + noun : added + " " + noun + "s";
+		String message = "Imported " + addedText + " into \"" + name + "\".";
+		if (skipped > 0)
+		{
+			String skippedText = skipped == 1 ? "1 " + noun + " was" : skipped + " " + noun + "s were";
+			message += " " + skippedText + " already marked and left as they are.";
+		}
+		return message;
+	}
+
+	private void applyGroupTileFlag(String groupId, Boolean value, boolean corners)
+	{
+		if (groupId == null)
+		{
+			return;
+		}
+		for (TileMarker marker : markers.values())
+		{
+			if (!groupId.equals(marker.getGroupId()))
+			{
+				continue;
+			}
+			if (corners)
+			{
+				marker.setCornersOnly(value);
+			}
+			else
+			{
+				marker.setMergeBorders(value);
+			}
+		}
+	}
+
+	private TileMarker tile(MarkerLocation location)
+	{
+		if (location == null)
+		{
+			return null;
+		}
+		return markers.get(location);
+	}
+
 	public synchronized void setObjectLabel(ObjectRef ref, String label)
 	{
 		if (ref == null)
@@ -340,31 +673,24 @@ public class MarkerRepository
 			resolved = null;
 		}
 		marker.setLabel(resolved);
-		if (marker.hasLabel())
-		{
-			marker.setShowName(false);
-			marker.setShowLeftClick(false);
-		}
 	}
 
 	public synchronized void setObjectShowName(ObjectRef ref, boolean show)
 	{
 		ObjectMarker marker = object(ref);
-		if (marker == null || marker.hasLabel())
+		if (marker != null)
 		{
-			return;
+			marker.setShowName(show);
 		}
-		marker.setShowName(show);
 	}
 
 	public synchronized void setObjectShowLeftClick(ObjectRef ref, boolean show)
 	{
 		ObjectMarker marker = object(ref);
-		if (marker == null || marker.hasLabel())
+		if (marker != null)
 		{
-			return;
+			marker.setShowLeftClick(show);
 		}
-		marker.setShowLeftClick(show);
 	}
 
 	public synchronized void setObjectShowOutline(ObjectRef ref, boolean show)
@@ -400,6 +726,39 @@ public class MarkerRepository
 		if (marker != null)
 		{
 			marker.setShowClickbox(show);
+		}
+	}
+
+	/**
+	 * {@code rgb} is packed ARGB. Null clears the override so the object uses
+	 * the default colour from the Object Markers settings.
+	 */
+	public synchronized void setObjectColour(ObjectRef ref, ObjectColourSlot slot, Integer rgb)
+	{
+		ObjectMarker marker = object(ref);
+		if (marker == null || slot == null)
+		{
+			return;
+		}
+		switch (slot)
+		{
+			case TEXT:
+				marker.setTextColour(rgb);
+				break;
+			case OUTLINE:
+				marker.setOutlineColour(rgb);
+				break;
+			case HULL:
+				marker.setHullColour(rgb);
+				break;
+			case TILE:
+				marker.setTileColour(rgb);
+				break;
+			case CLICKBOX:
+				marker.setClickboxColour(rgb);
+				break;
+			default:
+				break;
 		}
 	}
 
@@ -840,10 +1199,25 @@ public class MarkerRepository
 		keep.setShowClickbox(keep.isShowClickbox() || extra.isShowClickbox());
 		keep.setShowName(keep.isShowName() || extra.isShowName());
 		keep.setShowLeftClick(keep.isShowLeftClick() || extra.isShowLeftClick());
-		if (keep.hasLabel())
+		if (keep.getTextColour() == null)
 		{
-			keep.setShowName(false);
-			keep.setShowLeftClick(false);
+			keep.setTextColour(extra.getTextColour());
+		}
+		if (keep.getOutlineColour() == null)
+		{
+			keep.setOutlineColour(extra.getOutlineColour());
+		}
+		if (keep.getHullColour() == null)
+		{
+			keep.setHullColour(extra.getHullColour());
+		}
+		if (keep.getTileColour() == null)
+		{
+			keep.setTileColour(extra.getTileColour());
+		}
+		if (keep.getClickboxColour() == null)
+		{
+			keep.setClickboxColour(extra.getClickboxColour());
 		}
 	}
 

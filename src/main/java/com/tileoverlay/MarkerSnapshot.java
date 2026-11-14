@@ -6,7 +6,6 @@ package com.tileoverlay;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -81,21 +80,6 @@ public final class MarkerSnapshot
 	{
 		String groupId = marker.getGroupId();
 		return groupId == null || !disabledGroupIds.contains(groupId);
-	}
-
-	public Set<Long> visiblePacks(int plane)
-	{
-		Set<Long> packs = new HashSet<>();
-		for (TileMarker marker : markers)
-		{
-			if (marker.getPlane() != plane || !isShown(marker))
-			{
-				continue;
-			}
-			TilePoint tile = marker.location().toTilePoint();
-			packs.add(tile.pack());
-		}
-		return packs;
 	}
 
 	/**

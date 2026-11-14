@@ -12,16 +12,19 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.ObjectComposition;
 
-/**
- * Transformed decorations, such as a mounted Xeric's talisman, keep a different
- * id for each configuration. The base object lists those ids. One mark on the
- * base covers every configuration.
- */
 @Singleton
 public class ObjectFamilies
 {
 	static final int CHUNK = 2000;
 	static final int CAP = 90000;
+
+	/**
+	 * Mounted Xeric's talisman configurations. The scene id changes with the
+	 * left-click destination, and the cache does not keep them on one impostor list.
+	 */
+	private static final int[] MOUNTED_XERICS = {33411, 33412, 33413, 33414, 33415, 33419};
+	private static final int[] MOUNTED_DIGSITE = {33416, 33417, 33418, 33420};
+	private static final int[][] KNOWN = {MOUNTED_XERICS, MOUNTED_DIGSITE};
 
 	private final Client client;
 	private final Map<Integer, Integer> toBase = new HashMap<>();
@@ -32,6 +35,10 @@ public class ObjectFamilies
 	ObjectFamilies(Client client)
 	{
 		this.client = client;
+		for (int[] family : KNOWN)
+		{
+			link(family[0], family);
+		}
 	}
 
 	ObjectFamilies()
@@ -39,10 +46,6 @@ public class ObjectFamilies
 		this(null);
 	}
 
-	/**
-	 * Reads the next slice of object definitions. Safe to call every game tick.
-	 * Returns true on the tick the index finishes.
-	 */
 	public boolean scanChunk()
 	{
 		if (complete || client == null || client.getGameState() != GameState.LOGGED_IN)
@@ -91,13 +94,7 @@ public class ObjectFamilies
 		{
 			return false;
 		}
-		if (left == right)
-		{
-			return true;
-		}
-		Integer leftBase = toBase.get(left);
-		Integer rightBase = toBase.get(right);
-		return leftBase != null && leftBase.equals(rightBase);
+		return left == right || canonical(left) == canonical(right);
 	}
 
 	void index(int baseId, int[] impostorIds)
@@ -106,25 +103,90 @@ public class ObjectFamilies
 		{
 			return;
 		}
-		boolean any = false;
+		int count = 0;
 		for (int child : impostorIds)
 		{
 			if (child >= 0)
 			{
-				any = true;
-				break;
+				count++;
 			}
 		}
-		if (!any)
+		if (count == 0)
+		{
+			return;
+		}
+		int[] listed = new int[count + 1];
+		listed[0] = baseId;
+		int cursor = 1;
+		for (int child : impostorIds)
+		{
+			if (child >= 0)
+			{
+				listed[cursor++] = child;
+			}
+		}
+		link(baseId, listed);
+		if (crossesFamilies(listed))
+		{
+			for (int[] family : KNOWN)
+			{
+				if (intersects(family, listed))
+				{
+					link(family[0], family);
+				}
+			}
+			return;
+		}
+		for (int[] family : KNOWN)
+		{
+			if (intersects(family, listed))
+			{
+				link(baseId, family);
+			}
+		}
+	}
+
+	/** One impostor list must not join the Xeric's mount to the digsite mount. */
+	private static boolean crossesFamilies(int[] ids)
+	{
+		int hits = 0;
+		for (int[] family : KNOWN)
+		{
+			if (intersects(family, ids))
+			{
+				hits++;
+			}
+		}
+		return hits > 1;
+	}
+
+	private static boolean intersects(int[] family, int[] ids)
+	{
+		for (int id : ids)
+		{
+			for (int member : family)
+			{
+				if (id == member)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private void link(int baseId, int[] ids)
+	{
+		if (baseId < 0 || ids == null)
 		{
 			return;
 		}
 		toBase.put(baseId, baseId);
-		for (int child : impostorIds)
+		for (int id : ids)
 		{
-			if (child >= 0)
+			if (id >= 0)
 			{
-				toBase.put(child, baseId);
+				toBase.put(id, baseId);
 			}
 		}
 	}

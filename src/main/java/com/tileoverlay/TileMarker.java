@@ -20,6 +20,19 @@ public class TileMarker
 	private MarkerStyle style;
 	private String label;
 	private String groupId;
+	/** Null follows that style's Corners setting. */
+	private Boolean cornersOnly;
+	/** Null follows that style's Merge setting. */
+	private Boolean mergeBorders;
+	/**
+	 * Packed ARGB. Null uses the tile group's colour when it has one,
+	 * and otherwise the style's border colour.
+	 */
+	private Integer borderColour;
+	/** Packed ARGB. Null uses the group colour, then the style fill. */
+	private Integer fillColour;
+	/** Packed ARGB. Null uses the label text colour setting. */
+	private Integer labelColour;
 
 	public MarkerLocation location()
 	{
@@ -28,7 +41,9 @@ public class TileMarker
 
 	public TileMarker copy()
 	{
-		return new TileMarker(regionId, regionX, regionY, plane, style, label, groupId);
+		return new TileMarker(
+			regionId, regionX, regionY, plane, style, label, groupId,
+			cornersOnly, mergeBorders, borderColour, fillColour, labelColour);
 	}
 
 	public static TileMarker create(MarkerLocation location, MarkerStyle style)
@@ -39,6 +54,11 @@ public class TileMarker
 			location.getRegionY(),
 			location.getPlane(),
 			style,
+			null,
+			null,
+			null,
+			null,
+			null,
 			null,
 			null);
 	}
