@@ -42,11 +42,6 @@ class ObjectLeftClick
 		this.configManager = configManager;
 	}
 
-	/**
-	 * Remember the left-click option currently built for each object in the menu.
-	 * Call this after menu entry swapper and other plugins have reordered entries.
-	 * Shift is ignored so a shift-click option does not replace the normal one.
-	 */
 	void observe(MenuEntry[] entries)
 	{
 		if (entries == null || entries.length == 0)
@@ -75,10 +70,7 @@ class ObjectLeftClick
 			int rawId = entry.getIdentifier();
 			int altId = -1;
 			int objectId = -1;
-			// A normal object option's identifier is the id. A cloned sub-option
-			// keeps the submenu identifier, whose high bits are the sub-index, so
-			// it must not be looked up as its own object. The option text is kept
-			// and later attached to the real object on the same tile.
+			
 			if ((rawId >>> 16) == 0)
 			{
 				ObjectComposition base = definition(rawId);
@@ -126,10 +118,6 @@ class ObjectLeftClick
 		return firstOption(topOps(resolved));
 	}
 
-	/**
-	 * Drop remembered options after a custom left-click changes, so the new
-	 * config is used until the menu is built again.
-	 */
 	void forgetSwap(String key)
 	{
 		if (key == null || key.startsWith(SHIFT_PREFIX) || !key.startsWith(SWAP_PREFIX))
@@ -272,11 +260,6 @@ class ObjectLeftClick
 		return null;
 	}
 
-	/**
-	 * Highest object option in the menu. Entries are bottom to top, so the
-	 * last option for an object is its left-click. Walk here wins only when
-	 * it sits above that object's own options.
-	 */
 	static Map<Integer, String> choose(List<Hit> hits)
 	{
 		Map<Integer, String> chosen = new HashMap<>();
