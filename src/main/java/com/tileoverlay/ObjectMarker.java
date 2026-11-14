@@ -27,10 +27,6 @@ public class ObjectMarker
 	private boolean showHull;
 	private boolean showTile;
 	private boolean showClickbox;
-	/**
-	 * Packed ARGB. Null uses the matching default colour from the Object Markers settings.
-	 * {@link #textColour} is the name, the left-click option, and the label.
-	 */
 	private Integer textColour;
 	private Integer outlineColour;
 	private Integer hullColour;

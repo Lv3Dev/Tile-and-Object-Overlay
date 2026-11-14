@@ -26,11 +26,6 @@ import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.OverlayUtil;
 
-/**
- * One minimap marker for every marked tile. Regions and borders are stored as
- * tiles, so the same switch covers them. The minimap is part of the viewport
- * interface, which is drawn above the scene, so this overlay is separate.
- */
 public class TileMinimapOverlay extends Overlay
 {
 	private final Client client;
@@ -138,10 +133,6 @@ public class TileMinimapOverlay extends Overlay
 		return world == null ? 0 : world.getPlane();
 	}
 
-	/**
-	 * The tile outline is the same shape Ground Markers uses. A dot is drawn as
-	 * well so a single tile still reads when it sits on the edge of the minimap.
-	 */
 	private void drawTile(Graphics2D graphics, LocalPoint local, Color colour)
 	{
 		int x = local.getX() & -Perspective.LOCAL_TILE_SIZE;

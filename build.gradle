@@ -71,6 +71,5 @@ tasks.register('shadowJar', Jar) {
 }
 
 jar {
-	// Sideload as tile-and-object-overlay.jar. Remove a leftover tile-overlay.jar so both copies are not loaded.
 	archiveBaseName.set('tile-and-object-overlay')
 }

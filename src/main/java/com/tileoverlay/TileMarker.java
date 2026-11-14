@@ -20,18 +20,10 @@ public class TileMarker
 	private MarkerStyle style;
 	private String label;
 	private String groupId;
-	/** Null follows that style's Corners setting. */
 	private Boolean cornersOnly;
-	/** Null follows that style's Merge setting. */
 	private Boolean mergeBorders;
-	/**
-	 * Packed ARGB. Null uses the tile group's colour when it has one,
-	 * and otherwise the style's border colour.
-	 */
 	private Integer borderColour;
-	/** Packed ARGB. Null uses the group colour, then the style fill. */
 	private Integer fillColour;
-	/** Packed ARGB. Null uses the label text colour setting. */
 	private Integer labelColour;
 
 	public MarkerLocation location()

@@ -6,11 +6,6 @@ package com.tileoverlay;
 
 import java.awt.Color;
 
-/**
- * Style colours live here, not on {@link TileOverlayConfig}.
- * RuneLite proxies every config method. A method without {@code @ConfigItem}
- * logs a warning and returns null, which throws on every frame once a marker exists.
- */
 public final class MarkerLooks
 {
 	private MarkerLooks()
@@ -101,7 +96,6 @@ public final class MarkerLooks
 		}
 	}
 
-	/** {@code override} null uses the style setting. */
 	public static boolean cornersOnly(TileOverlayConfig config, MarkerStyle style, Boolean override)
 	{
 		if (override != null)
@@ -111,7 +105,6 @@ public final class MarkerLooks
 		return cornersOnly(config, style == null ? MarkerStyle.TILE : style);
 	}
 
-	/** {@code override} null uses the style setting. */
 	public static boolean merge(TileOverlayConfig config, MarkerStyle style, Boolean override)
 	{
 		if (override != null)
@@ -121,10 +114,6 @@ public final class MarkerLooks
 		return merge(config, style == null ? MarkerStyle.TILE : style);
 	}
 
-	/**
-	 * Tile border. The tile colour wins, then the group colour as a solid border,
-	 * then that style's border colour.
-	 */
 	public static Color tileBorder(TileOverlayConfig config, MarkerStyle style, Integer tileColour, Integer groupColour)
 	{
 		if (tileColour != null)
@@ -139,10 +128,6 @@ public final class MarkerLooks
 		return border(config, style);
 	}
 
-	/**
-	 * Tile fill. The tile colour wins, then the group's fill, then a group
-	 * colour's transparency. A fully solid group colour keeps that style's fill strength.
-	 */
 	public static Color tileFill(TileOverlayConfig config, MarkerStyle style, Integer tileColour, Integer groupColour)
 	{
 		return tileFill(config, style, tileColour, groupColour, null);
@@ -171,7 +156,6 @@ public final class MarkerLooks
 		return withOpacity(fill(config, style), fillOpacity(config, style));
 	}
 
-	/** Label text. Null uses the Ground Markers label colour. */
 	public static Color tileLabel(TileOverlayConfig config, Integer tileColour)
 	{
 		if (tileColour != null)

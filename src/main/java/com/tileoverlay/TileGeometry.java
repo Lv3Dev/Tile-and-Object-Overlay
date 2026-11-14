@@ -8,10 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Rectangle, perimeter, and merged-outline math for ground markers.
- * World X grows east and world Y grows north.
- */
 public final class TileGeometry
 {
 	public static final int MAX_SPAN = 64;
@@ -43,10 +39,6 @@ public final class TileGeometry
 			| (plane & 0xF);
 	}
 
-	/**
-	 * Inclusive rectangle from either corner. Returns null when either side is longer than {@link #MAX_SPAN}.
-	 * A border mark is only the perimeter.
-	 */
 	public static List<TilePoint> area(int x1, int y1, int x2, int y2, int plane, boolean perimeterOnly)
 	{
 		int minX = Math.min(x1, x2);
@@ -97,11 +89,6 @@ public final class TileGeometry
 		return !occupied.contains(pack(nx, ny, plane));
 	}
 
-	/**
-	 * True when the outline turns at this corner of the tile. Straight joins between
-	 * neighbouring marked tiles are not corners, so a merged row does not grow ticks
-	 * along the middle of a side.
-	 */
 	public static boolean isTurn(Set<Long> occupied, int tx, int ty, int plane, Corner corner)
 	{
 		final boolean nw;

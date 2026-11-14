@@ -82,12 +82,6 @@ public final class MarkerSnapshot
 		return groupId == null || !disabledGroupIds.contains(groupId);
 	}
 
-	/**
-	 * Which markers the side-panel lists include.
-	 * Ungrouped lists markers that are not in a group.
-	 * Grouped lists markers that belong to a group.
-	 * Show all lists every marker.
-	 */
 	public enum ListFilter
 	{
 		UNGROUPED,

@@ -118,7 +118,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 	private NavigationButton navButton;
 	private BufferedImage icon;
 
-	// Replaced on every start. shutDown() retires the current one, and the same plugin instance is started again.
 	private volatile ExecutorService io;
 
 	private final HotkeyListener hotkeyListener = new HotkeyListener(() -> config.markHotkey())
@@ -187,8 +186,7 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		{
 			enqueueSave(repository.toFile());
 		}
-		// Let a queued write finish. shutdownNow would interrupt the move onto the marker file.
-		// The client thread does not wait. The next startUp opens a new executor.
+
 		ExecutorService current = io;
 		if (current != null)
 		{
@@ -206,9 +204,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		});
 	}
 
-	/**
-	 * Runs on the IO thread. A toggle-off save may still be writing when the plugin is turned back on.
-	 */
 	private boolean finishPrevious(ExecutorService previous)
 	{
 		if (previous == null)
@@ -288,11 +283,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		}
 	}
 
-	/**
-	 * Runs after menu entry swapper. The closed menu is the left-click the game
-	 * will actually use, including a swapped or rewritten option. Shift is the
-	 * shift-click menu, so it is ignored.
-	 */
 	@Subscribe(priority = -1000f)
 	public void onPostMenuSort(PostMenuSort event)
 	{
