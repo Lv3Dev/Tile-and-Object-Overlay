@@ -6,9 +6,6 @@ package com.tileoverlay;
 
 import java.util.Objects;
 
-/**
- * A world-coordinate tile. Used by geometry that does not need a RuneLite world point.
- */
 public final class TilePoint
 {
 	private final int x;
