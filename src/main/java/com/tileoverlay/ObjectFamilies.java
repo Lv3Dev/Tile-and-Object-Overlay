@@ -18,10 +18,6 @@ public class ObjectFamilies
 	static final int CHUNK = 2000;
 	static final int CAP = 90000;
 
-	/**
-	 * Mounted Xeric's talisman configurations. The scene id changes with the
-	 * left-click destination, and the cache does not keep them on one impostor list.
-	 */
 	private static final int[] MOUNTED_XERICS = {33411, 33412, 33413, 33414, 33415, 33419};
 	private static final int[] MOUNTED_DIGSITE = {33416, 33417, 33418, 33420};
 	private static final int[][] KNOWN = {MOUNTED_XERICS, MOUNTED_DIGSITE};
@@ -146,7 +142,6 @@ public class ObjectFamilies
 		}
 	}
 
-	/** One impostor list must not join the Xeric's mount to the digsite mount. */
 	private static boolean crossesFamilies(int[] ids)
 	{
 		int hits = 0;
