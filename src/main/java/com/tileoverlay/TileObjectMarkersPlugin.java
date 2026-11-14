@@ -9,8 +9,6 @@ import com.tileoverlay.ui.TileOverlayPanel;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -43,7 +41,6 @@ import net.runelite.client.game.chatbox.ChatboxPanelManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -88,9 +85,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 
 	@Inject
 	private ClientToolbar clientToolbar;
-
-	@Inject
-	private PluginManager pluginManager;
 
 	@Inject
 	private ObjectFamilies families;
@@ -219,7 +213,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 		}
 		catch (InterruptedException ex)
 		{
-			Thread.currentThread().interrupt();
 			return false;
 		}
 		return true;
@@ -580,73 +573,6 @@ public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.
 			repository.setActiveGroup(id, active);
 			changed();
 		});
-	}
-
-	@Override
-	public void openSettings()
-	{
-		SwingUtilities.invokeLater(this::openPluginSettings);
-	}
-
-	private void openPluginSettings()
-	{
-		try
-		{
-			NavigationButton configButton = configNavigation();
-			if (configButton != null)
-			{
-				clientToolbar.openPanel(configButton);
-			}
-			SwingUtilities.invokeLater(this::openConfigurationPage);
-		}
-		catch (RuntimeException ex)
-		{
-			log.warn("Could not open settings", ex);
-		}
-	}
-
-	private void openConfigurationPage()
-	{
-		try
-		{
-			Class<?> panelClass = Class.forName("net.runelite.client.plugins.config.PluginListPanel");
-			Object listPanel = getInjector().getInstance(panelClass);
-			Method method = panelClass.getDeclaredMethod("openConfigurationPanel", Plugin.class);
-			method.setAccessible(true);
-			method.invoke(listPanel, this);
-		}
-		catch (ReflectiveOperationException ex)
-		{
-			log.warn("Could not open settings", ex);
-		}
-	}
-
-	private NavigationButton configNavigation()
-	{
-		if (pluginManager == null)
-		{
-			return null;
-		}
-		for (Plugin plugin : pluginManager.getPlugins())
-		{
-			if (plugin == null || !"net.runelite.client.plugins.config.ConfigPlugin".equals(plugin.getClass().getName()))
-			{
-				continue;
-			}
-			try
-			{
-				Field field = plugin.getClass().getDeclaredField("navButton");
-				field.setAccessible(true);
-				Object value = field.get(plugin);
-				return value instanceof NavigationButton ? (NavigationButton) value : null;
-			}
-			catch (ReflectiveOperationException ex)
-			{
-				log.warn("Could not open settings", ex);
-				return null;
-			}
-		}
-		return null;
 	}
 
 	@Override

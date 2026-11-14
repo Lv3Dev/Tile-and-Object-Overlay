@@ -49,8 +49,6 @@ import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.Ellipse2D;
-import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -176,8 +174,6 @@ public class TileOverlayPanel extends PluginPanel
 		void createNamedObjectGroup(String name, Collection<ObjectRef> refs);
 
 		void setActiveGroup(String id, boolean active);
-
-		void openSettings();
 	}
 
 	private static final String[] CARD_KEYS = {"tileGroups", "tiles", "objectGroups", "objects"};
@@ -310,15 +306,7 @@ public class TileOverlayPanel extends PluginPanel
 		JLabel title = new JLabel("Tile & Object Markers");
 		title.setFont(TITLE_FONT);
 		title.setForeground(Color.WHITE);
-		CogButton cog = new CogButton();
-		cog.addActionListener(event ->
-		{
-			if (listener != null)
-			{
-				listener.openSettings();
-			}
-		});
-		header.add(new TitleRow(iconLabel, title, cog));
+		header.add(new TitleRow(iconLabel, title));
 		header.add(Box.createVerticalStrut(8));
 
 		JPanel primaryRow = new JPanel(new GridLayout(1, 2, 6, 0));
@@ -3474,13 +3462,11 @@ public class TileOverlayPanel extends PluginPanel
 	{
 		private final JLabel iconLabel;
 		private final JLabel title;
-		private final JComponent cog;
 
-		private TitleRow(JLabel iconLabel, JLabel title, JComponent cog)
+		private TitleRow(JLabel iconLabel, JLabel title)
 		{
 			this.iconLabel = iconLabel;
 			this.title = title;
-			this.cog = cog;
 			setOpaque(false);
 			setLayout(null);
 			setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -3489,7 +3475,6 @@ public class TileOverlayPanel extends PluginPanel
 				add(iconLabel);
 			}
 			add(title);
-			add(cog);
 		}
 
 		@Override
@@ -3517,11 +3502,7 @@ public class TileOverlayPanel extends PluginPanel
 				iconLabel.setBounds(0, iconY, iconSize.width, iconSize.height);
 				leftLimit = iconSize.width + 4;
 			}
-			Dimension cogSize = cog.getPreferredSize();
-			int cogX = Math.max(0, width - cogSize.width);
-			int cogY = Math.max(0, (height - cogSize.height) / 2);
-			cog.setBounds(cogX, cogY, cogSize.width, cogSize.height);
-			int rightLimit = cogX - 4;
+			int rightLimit = width;
 			Dimension titleSize = title.getPreferredSize();
 			int titleX = (width - titleSize.width) / 2;
 			if (titleX < leftLimit)
@@ -4030,58 +4011,6 @@ public class TileOverlayPanel extends PluginPanel
 		public boolean getScrollableTracksViewportHeight()
 		{
 			return false;
-		}
-	}
-
-	private static final class CogButton extends JButton
-	{
-		private CogButton()
-		{
-			setPreferredSize(new Dimension(18, 18));
-			setMinimumSize(new Dimension(18, 18));
-			setMaximumSize(new Dimension(18, 18));
-			setFocusPainted(false);
-			setBorderPainted(false);
-			setContentAreaFilled(false);
-			setOpaque(false);
-			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			setToolTipText("Settings");
-		}
-
-		@Override
-		protected void paintComponent(Graphics graphics)
-		{
-			Graphics2D g2 = (Graphics2D) graphics.create();
-			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-			Color colour = getModel().isRollover() ? Color.WHITE : new Color(206, 208, 214);
-			float cx = getWidth() / 2f;
-			float cy = getHeight() / 2f;
-			g2.translate(cx, cy);
-			g2.setColor(colour);
-			for (int tooth = 0; tooth < 8; tooth++)
-			{
-				g2.fill(new RoundRectangle2D.Float(-1.25f, -8.15f, 2.5f, 3.35f, 1.2f, 1.2f));
-				g2.rotate(Math.PI / 4.0);
-			}
-			float hub = 4.65f;
-			g2.fill(new Ellipse2D.Float(-hub, -hub, hub * 2f, hub * 2f));
-			g2.setColor(backdrop(this));
-			float hole = 2.05f;
-			g2.fill(new Ellipse2D.Float(-hole, -hole, hole * 2f, hole * 2f));
-			g2.dispose();
-		}
-
-		private static Color backdrop(Component component)
-		{
-			for (Component current = component.getParent(); current != null; current = current.getParent())
-			{
-				if (current.isOpaque() && current.isBackgroundSet() && current.getBackground() != null)
-				{
-					return current.getBackground();
-				}
-			}
-			return ColorScheme.DARK_GRAY_COLOR;
 		}
 	}
 

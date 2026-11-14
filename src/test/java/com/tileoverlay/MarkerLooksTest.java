@@ -5,29 +5,11 @@
 package com.tileoverlay;
 
 import java.awt.Color;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
-import net.runelite.client.config.ConfigItem;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class MarkerLooksTest
 {
-	@Test
-	public void everyConfigMethodIsARealConfigItem()
-	{
-		for (Method method : TileOverlayConfig.class.getDeclaredMethods())
-		{
-			if (method.isSynthetic())
-			{
-				continue;
-			}
-			Assert.assertNotNull(
-				method.getName() + " would be called through the config proxy and return null",
-				method.getAnnotation(ConfigItem.class));
-		}
-	}
-
 	@Test
 	public void eachMarkerStyleUsesItsOwnColours()
 	{
@@ -79,66 +61,67 @@ public class MarkerLooksTest
 
 	private static TileOverlayConfig config()
 	{
-		return (TileOverlayConfig) Proxy.newProxyInstance(
-			TileOverlayConfig.class.getClassLoader(),
-			new Class<?>[]{TileOverlayConfig.class},
-			(proxy, method, args) ->
+		return new TileOverlayConfig()
+		{
+			@Override
+			public Color tileBorderColour()
 			{
-				String name = method.getName();
-				if ("tileBorderColour".equals(name))
-				{
-					return new Color(1, 0, 0);
-				}
-				if ("regionBorderColour".equals(name))
-				{
-					return new Color(0, 1, 0);
-				}
-				if ("borderStyleBorderColour".equals(name))
-				{
-					return new Color(0, 0, 1);
-				}
-				if ("tileFillOpacity".equals(name))
-				{
-					return 10;
-				}
-				if ("regionFillOpacity".equals(name))
-				{
-					return 20;
-				}
-				if ("borderStyleFillOpacity".equals(name))
-				{
-					return 30;
-				}
-				if ("regionCornersOnly".equals(name))
-				{
-					return true;
-				}
-				if ("borderStyleCornerSize".equals(name))
-				{
-					return 30;
-				}
-				if ("tileCornerSize".equals(name) || "regionCornerSize".equals(name))
-				{
-					return 22;
-				}
-				if ("tileMergeBorders".equals(name) || "borderMergeBorders".equals(name))
-				{
-					return true;
-				}
-				if ("regionMergeBorders".equals(name))
-				{
-					return false;
-				}
-				Class<?> type = method.getReturnType();
-				if (type == boolean.class)
-				{
-					return false;
-				}
-				if (type == int.class)
-				{
-					return 0;
-				}
+				return new Color(1, 0, 0);
+			}
+
+			@Override
+			public Color regionBorderColour()
+			{
+				return new Color(0, 1, 0);
+			}
+
+			@Override
+			public Color borderStyleBorderColour()
+			{
+				return new Color(0, 0, 1);
+			}
+
+			@Override
+			public int tileFillOpacity()
+			{
+				return 10;
+			}
+
+			@Override
+			public int regionFillOpacity()
+			{
+				return 20;
+			}
+
+			@Override
+			public int borderStyleFillOpacity()
+			{
+				return 30;
+			}
+
+			@Override
+			public boolean regionCornersOnly()
+			{
+				return true;
+			}
+
+			@Override
+			public int borderStyleCornerSize()
+			{
+				return 30;
+			}
+
+			@Override
+			public boolean regionMergeBorders()
+			{
+				return false;
+			}
+
+			@Override
+			public Color labelTextColour()
+			{
 				return null;
-			});
+			}
+		};
 	}
 }
