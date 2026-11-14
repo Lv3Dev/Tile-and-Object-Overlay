@@ -18,10 +18,6 @@ import java.util.function.IntUnaryOperator;
 import javax.inject.Singleton;
 import net.runelite.api.coords.WorldPoint;
 
-/**
- * In-memory markers and groups. Mutations happen on the client thread.
- * {@link #setHighlighted} and {@link #setHighlightedObjects} are safe to call from the Swing thread.
- */
 @Singleton
 public class MarkerRepository
 {
@@ -176,9 +172,6 @@ public class MarkerRepository
 		markers.put(location, created);
 	}
 
-	/**
-	 * Marking an object that is already marked leaves its label and group alone.
-	 */
 	public synchronized void markObject(int objectId, WorldPoint worldPoint, String name)
 	{
 		if (worldPoint == null || objectId < 0)
@@ -195,9 +188,6 @@ public class MarkerRepository
 		objects.put(ref, created);
 	}
 
-	/**
-	 * @return false when the rectangle is larger than {@link TileGeometry#MAX_SPAN} on a side
-	 */
 	public synchronized boolean markArea(WorldPoint start, WorldPoint end, MarkerStyle style)
 	{
 		if (start == null || end == null || style == null)
@@ -229,8 +219,7 @@ public class MarkerRepository
 				existing.setStyle(style);
 			}
 		}
-		// A region or border is always in a group. New tiles join the active tile
-		// group, or a new group named for the style. Tiles already marked keep theirs.
+
 		if (!created.isEmpty())
 		{
 			String groupId = activeId(GroupKind.TILE);
@@ -251,10 +240,6 @@ public class MarkerRepository
 		return true;
 	}
 
-	/**
-	 * Tiles of {@code style} that share an edge with {@code start}, on the same plane.
-	 * A rectangle or a border ring is one component. A tile that only touches at a corner is not.
-	 */
 	public synchronized Collection<MarkerLocation> connectedOfStyle(WorldPoint start, MarkerStyle style)
 	{
 		if (start == null || style == null)
@@ -403,7 +388,6 @@ public class MarkerRepository
 		}
 	}
 
-	/** Tile groups only. Null clears the fill override. */
 	public synchronized void setGroupFillColour(String groupId, Integer rgb)
 	{
 		MarkerGroup group = tileGroup(groupId);
@@ -729,10 +713,6 @@ public class MarkerRepository
 		}
 	}
 
-	/**
-	 * {@code rgb} is packed ARGB. Null clears the override so the object uses
-	 * the default colour from the Object Markers settings.
-	 */
 	public synchronized void setObjectColour(ObjectRef ref, ObjectColourSlot slot, Integer rgb)
 	{
 		ObjectMarker marker = object(ref);
@@ -827,12 +807,6 @@ public class MarkerRepository
 		target.setActive(active);
 	}
 
-	/**
-	 * Stored decoration ids follow the base object once its transform list is known.
-	 * Marks of the same decoration on the same tile collapse into one.
-	 *
-	 * @return true when an id or a duplicate changed
-	 */
 	public synchronized boolean rekeyObjects(IntUnaryOperator canonical)
 	{
 		if (canonical == null || objects.isEmpty())
