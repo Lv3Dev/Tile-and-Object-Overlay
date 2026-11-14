@@ -4,6 +4,7 @@
  */
 package com.tileoverlay;
 
+import com.google.gson.Gson;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.IntUnaryOperator;
+import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.api.coords.WorldPoint;
 
@@ -25,11 +27,18 @@ import net.runelite.api.coords.WorldPoint;
 @Singleton
 public class MarkerRepository
 {
+	private final Gson gson;
 	private final Map<MarkerLocation, TileMarker> markers = new LinkedHashMap<>();
 	private final Map<ObjectRef, ObjectMarker> objects = new LinkedHashMap<>();
 	private final Map<String, MarkerGroup> groups = new LinkedHashMap<>();
 	private volatile Set<MarkerLocation> highlighted = Collections.emptySet();
 	private volatile Set<ObjectRef> highlightedObjects = Collections.emptySet();
+
+	@Inject
+	public MarkerRepository(Gson gson)
+	{
+		this.gson = gson;
+	}
 
 	public synchronized void replace(MarkerFile file)
 	{
@@ -466,7 +475,7 @@ public class MarkerRepository
 		}
 		String where = kind == GroupKind.OBJECT ? "Object Groups" : "Tile Groups";
 		String notice = "Copied " + noun + " group \"" + group.getName() + "\" (" + counted + "). Import it from " + where + ".";
-		return new GroupShare.Bundle(GroupShare.encode(group, tiles, sharedObjects), notice);
+		return new GroupShare.Bundle(GroupShare.encode(gson, group, tiles, sharedObjects), notice);
 	}
 
 	public synchronized GroupShare.Result importShare(GroupKind expected, String text)
@@ -477,7 +486,7 @@ public class MarkerRepository
 		{
 			return GroupShare.Result.message("Paste a copied group. Use the copy icon on a group, then import it here.");
 		}
-		GroupShare.Decoded decoded = GroupShare.decode(trimmed);
+		GroupShare.Decoded decoded = GroupShare.decode(gson, trimmed);
 		if (decoded.isNewer())
 		{
 			return GroupShare.Result.message("That group was copied by a newer version of this plugin.");

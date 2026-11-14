@@ -5,8 +5,8 @@
 package com.tileoverlay;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.http.api.RuneLiteAPI;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -24,7 +24,7 @@ public class MarkerFileTest
 		marker.setGroupId("id");
 		file.getMarkers().add(marker);
 
-		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		Gson gson = RuneLiteAPI.GSON.newBuilder().setPrettyPrinting().create();
 		MarkerFile loaded = gson.fromJson(gson.toJson(file), MarkerFile.class);
 
 		Assert.assertEquals(MarkerFile.CURRENT_VERSION, loaded.getVersion());
@@ -56,7 +56,7 @@ public class MarkerFileTest
 		Assert.assertTrue(marker.isShowOutline());
 		Assert.assertFalse(marker.isShowTile());
 
-		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		Gson gson = RuneLiteAPI.GSON.newBuilder().setPrettyPrinting().create();
 		MarkerFile loaded = gson.fromJson(gson.toJson(file), MarkerFile.class);
 
 		Assert.assertEquals(GroupKind.OBJECT, loaded.getGroups().get(0).getKind());
@@ -80,13 +80,13 @@ public class MarkerFileTest
 	public void versionOneFileHasNoObjectsAndNoGroupKind()
 	{
 		String json = "{\"version\":1,\"groups\":[{\"id\":\"id\",\"name\":\"Home\",\"enabled\":true,\"collapsed\":false}],\"markers\":[]}";
-		MarkerFile loaded = new Gson().fromJson(json, MarkerFile.class);
+		MarkerFile loaded = RuneLiteAPI.GSON.fromJson(json, MarkerFile.class);
 
 		Assert.assertEquals(1, loaded.getVersion());
 		Assert.assertTrue(loaded.getObjects() == null || loaded.getObjects().isEmpty());
 		Assert.assertNull(loaded.getGroups().get(0).getKind());
 
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		repository.replace(loaded);
 		Assert.assertEquals(GroupKind.TILE, repository.snapshot().getGroups().get(0).getKind());
 		Assert.assertTrue(repository.snapshot().getObjects().isEmpty());
@@ -96,7 +96,7 @@ public class MarkerFileTest
 	public void objectDisplayTogglesDefaultOffWhenMissing()
 	{
 		String json = "{\"version\":2,\"objects\":[{\"objectId\":1,\"regionId\":12850,\"regionX\":32,\"regionY\":32,\"plane\":0,\"name\":\"Tree\",\"label\":\"  \"}]}";
-		ObjectMarker loaded = new Gson().fromJson(json, MarkerFile.class).getObjects().get(0);
+		ObjectMarker loaded = RuneLiteAPI.GSON.fromJson(json, MarkerFile.class).getObjects().get(0);
 
 		Assert.assertFalse(loaded.isShowName());
 		Assert.assertFalse(loaded.isShowLeftClick());
@@ -108,10 +108,10 @@ public class MarkerFileTest
 	public void objectsFromBeforeHighlightFlagsKeepTheOutline()
 	{
 		String json = "{\"version\":2,\"objects\":[{\"objectId\":1,\"regionId\":12850,\"regionX\":32,\"regionY\":32,\"plane\":0,\"name\":\"Tree\"}]}";
-		MarkerFile file = new Gson().fromJson(json, MarkerFile.class);
+		MarkerFile file = RuneLiteAPI.GSON.fromJson(json, MarkerFile.class);
 		Assert.assertFalse(file.getObjects().get(0).isShowOutline());
 
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		repository.replace(file);
 		ObjectMarker marker = repository.snapshot().getObjects().get(0);
 		Assert.assertTrue(marker.isShowOutline());
@@ -124,7 +124,7 @@ public class MarkerFileTest
 	public void cornerAndMergeOverridesAreOptional()
 	{
 		String json = "{\"version\":3,\"markers\":[{\"regionId\":12850,\"regionX\":0,\"regionY\":0,\"plane\":0,\"style\":\"TILE\"}]}";
-		MarkerFile loaded = new Gson().fromJson(json, MarkerFile.class);
+		MarkerFile loaded = RuneLiteAPI.GSON.fromJson(json, MarkerFile.class);
 		Assert.assertEquals(3, loaded.getVersion());
 		Assert.assertNull(loaded.getMarkers().get(0).getCornersOnly());
 		Assert.assertNull(loaded.getMarkers().get(0).getMergeBorders());
@@ -139,7 +139,7 @@ public class MarkerFileTest
 		loaded.getGroups().add(new MarkerGroup("id", "Home", true, false));
 		loaded.getGroups().get(0).setColour(0x80FEDCBA);
 		loaded.getGroups().get(0).setFillColour(0x40ABCDEF);
-		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		Gson gson = RuneLiteAPI.GSON.newBuilder().setPrettyPrinting().create();
 		MarkerFile round = gson.fromJson(gson.toJson(loaded), MarkerFile.class);
 		Assert.assertEquals(3, round.getVersion());
 		Assert.assertEquals(MarkerFile.CURRENT_VERSION, new MarkerFile().getVersion());

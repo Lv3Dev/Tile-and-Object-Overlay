@@ -7,6 +7,7 @@ package com.tileoverlay;
 import java.util.Collection;
 import java.util.Collections;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.http.api.RuneLiteAPI;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -15,7 +16,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void deleteGroupWipesItsTiles()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		MarkerGroup group = repository.addGroup("Home");
 		repository.markTile(point);
@@ -33,7 +34,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void overlappingAreaKeepsLabelAndGroup()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
 		WorldPoint end = new WorldPoint(3201, 3200, 0);
 		repository.markTile(start);
@@ -53,7 +54,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void singleMarkDoesNotRestyleAnExistingTile()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		repository.markArea(point, point, MarkerStyle.BORDER);
 		repository.markTile(point);
@@ -63,7 +64,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void areaLargerThanTheCapIsRejected()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
 		WorldPoint end = new WorldPoint(3200 + TileGeometry.MAX_SPAN, 3200, 0);
 		Assert.assertFalse(repository.markArea(start, end, MarkerStyle.REGION));
@@ -73,7 +74,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void disabledGroupIsHiddenFromTheMergeSet()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		MarkerGroup group = repository.addGroup("Hide");
 		repository.markTile(point);
@@ -87,7 +88,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void newGroupsGetUniqueNames()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		Assert.assertEquals("Group 1", repository.addGroup(null).getName());
 		Assert.assertEquals("Group 2", repository.addGroup("").getName());
 		Assert.assertEquals("Home", repository.addGroup("Home").getName());
@@ -97,7 +98,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void deletingAnObjectGroupRemovesItsObjectsOnly()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		repository.markTile(point);
 		repository.addGroup("Tiles");
@@ -118,7 +119,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void markingAnObjectAgainKeepsItsLabel()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		ObjectRef ref = ObjectRef.of(123, point);
 		repository.markObject(123, point, "Rocks");
@@ -131,7 +132,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void aLabelLeavesNameAndLeftClickAlone()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		ObjectRef ref = ObjectRef.of(123, point);
 		repository.markObject(123, point, "Rocks");
@@ -161,7 +162,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void mountedDecorationKeepsItsLabelWhenTheConfigurationChanges()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		ObjectFamilies families = new ObjectFamilies();
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		int stored = families.canonical(33412);
@@ -195,7 +196,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void newObjectMarksStartWithOutlineOnlyAndFlagsRoundTrip()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		ObjectRef ref = ObjectRef.of(123, point);
 		repository.markObject(123, point, "Rocks");
@@ -210,7 +211,7 @@ public class MarkerRepositoryTest
 		repository.setObjectShowClickbox(ref, true);
 		repository.setObjectLabel(ref, "bank");
 
-		MarkerRepository loaded = new MarkerRepository();
+		MarkerRepository loaded = new MarkerRepository(RuneLiteAPI.GSON);
 		loaded.replace(repository.toFile());
 		ObjectMarker marker = loaded.getObject(ref);
 		Assert.assertEquals(MarkerFile.CURRENT_VERSION, repository.toFile().getVersion());
@@ -225,7 +226,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void groupedMarkersStayOffTheListUntilAsked()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint grouped = new WorldPoint(3200, 3200, 0);
 		WorldPoint loose = new WorldPoint(3201, 3200, 0);
 		MarkerGroup group = repository.addGroup("Home");
@@ -255,7 +256,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void activeGroupsStayOnTheirOwnKind()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		MarkerGroup tiles = repository.addGroup("Tiles");
 		MarkerGroup objects = repository.addGroup("Rocks", GroupKind.OBJECT);
 		repository.setActiveGroup(objects.getId(), true);
@@ -283,7 +284,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void namedGroupRequiresANameAndRekeyCollapsesDecorations()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		Assert.assertNull(repository.createNamedGroupFor("  ", Collections.singleton(MarkerLocation.fromWorld(point))));
 
@@ -303,7 +304,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void unmarkRegionRemovesTheConnectedAreaOnly()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
 		WorldPoint end = new WorldPoint(3202, 3201, 0);
 		Assert.assertTrue(repository.markArea(start, end, MarkerStyle.REGION));
@@ -341,7 +342,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void unmarkBorderRemovesTheWholePerimeter()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
 		WorldPoint end = new WorldPoint(3202, 3202, 0);
 		Assert.assertTrue(repository.markArea(start, end, MarkerStyle.BORDER));
@@ -361,7 +362,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void regionWithoutAnActiveGroupCreatesOne()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
 		WorldPoint end = new WorldPoint(3201, 3200, 0);
 		Assert.assertTrue(repository.markArea(start, end, MarkerStyle.REGION));
@@ -376,7 +377,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void borderWithoutAnActiveGroupCreatesOne()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		Assert.assertTrue(repository.markArea(point, point, MarkerStyle.BORDER));
 		Assert.assertEquals("Border", repository.snapshot().getGroups().get(0).getName());
@@ -386,7 +387,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void regionUsesTheActiveTileGroup()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		MarkerGroup active = repository.addGroup("Home");
 		repository.setActiveGroup(active.getId(), true);
 		WorldPoint start = new WorldPoint(3200, 3200, 0);
@@ -401,7 +402,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void markedTileStaysUngroupedWithoutAnActiveGroup()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		repository.markTile(point);
 		Assert.assertNull(repository.get(point).getGroupId());
@@ -411,7 +412,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void objectColourOverrideCanBeCleared()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		repository.markObject(5, point, "Pool");
 		ObjectRef ref = ObjectRef.of(5, point);
@@ -432,7 +433,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void cornerAndMergeOverridesFollowTheTileAndTheGroup()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint first = new WorldPoint(3200, 3200, 0);
 		WorldPoint second = new WorldPoint(3201, 3200, 0);
 		WorldPoint other = new WorldPoint(3205, 3200, 0);
@@ -467,7 +468,7 @@ public class MarkerRepositoryTest
 		Assert.assertNull(repository.get(second).getCornersOnly());
 		Assert.assertEquals(Boolean.TRUE, repository.get(first).getMergeBorders());
 
-		MarkerRepository loaded = new MarkerRepository();
+		MarkerRepository loaded = new MarkerRepository(RuneLiteAPI.GSON);
 		loaded.replace(repository.toFile());
 		Assert.assertEquals(MarkerFile.CURRENT_VERSION, loaded.toFile().getVersion());
 		Assert.assertNull(loaded.get(second).getCornersOnly());
@@ -478,7 +479,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void groupColourIsOnlyForTileGroups()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		MarkerGroup tiles = repository.addGroup("Tiles", GroupKind.TILE);
 		MarkerGroup objects = repository.addGroup("Objects", GroupKind.OBJECT);
 		repository.setGroupColour(tiles.getId(), 0xFF010203);
@@ -486,7 +487,7 @@ public class MarkerRepositoryTest
 		repository.setGroupFillColour(tiles.getId(), 0x40010203);
 		repository.setGroupFillColour(objects.getId(), 0xFF040506);
 
-		MarkerRepository loaded = new MarkerRepository();
+		MarkerRepository loaded = new MarkerRepository(RuneLiteAPI.GSON);
 		loaded.replace(repository.toFile());
 		Assert.assertEquals(Integer.valueOf(0xFF010203), group(loaded, "Tiles").getColour());
 		Assert.assertEquals(Integer.valueOf(0x40010203), group(loaded, "Tiles").getFillColour());
@@ -497,7 +498,7 @@ public class MarkerRepositoryTest
 	@Test
 	public void copiedGroupImportsColoursLabelsAndStyles()
 	{
-		MarkerRepository repository = new MarkerRepository();
+		MarkerRepository repository = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 1);
 		repository.markTile(point);
 		MarkerGroup group = repository.addGroup("Route");
@@ -512,7 +513,7 @@ public class MarkerRepositoryTest
 		repository.setTileColour(location, TileColourSlot.FILL, 0x40010203);
 
 		String text = repository.shareBundle(group.getId()).getText();
-		MarkerRepository other = new MarkerRepository();
+		MarkerRepository other = new MarkerRepository(RuneLiteAPI.GSON);
 		GroupShare.Result result = other.importShare(GroupKind.TILE, text);
 
 		Assert.assertTrue(result.isChanged());
@@ -533,14 +534,14 @@ public class MarkerRepositoryTest
 	@Test
 	public void importRejectsTheOtherKindAndLeavesExistingMarks()
 	{
-		MarkerRepository tiles = new MarkerRepository();
+		MarkerRepository tiles = new MarkerRepository(RuneLiteAPI.GSON);
 		WorldPoint point = new WorldPoint(3200, 3200, 0);
 		tiles.markTile(point);
 		MarkerGroup tileGroup = tiles.addGroup("Route");
 		tiles.assign(Collections.singleton(MarkerLocation.fromWorld(point)), tileGroup.getId());
 		String tileText = tiles.shareBundle(tileGroup.getId()).getText();
 
-		MarkerRepository objects = new MarkerRepository();
+		MarkerRepository objects = new MarkerRepository(RuneLiteAPI.GSON);
 		objects.markObject(5, point, "Bank");
 		MarkerGroup objectGroup = objects.addGroup("Bank", GroupKind.OBJECT);
 		objects.assignObjects(Collections.singleton(ObjectRef.of(5, point)), objectGroup.getId());
@@ -557,14 +558,14 @@ public class MarkerRepositoryTest
 		Assert.assertTrue(wrongObjects.getMessage().contains("Tile Groups"));
 		Assert.assertEquals(1, objects.snapshot().getObjects().size());
 
-		GroupShare.Result again = new MarkerRepository().importShare(GroupKind.TILE, tileText);
+		GroupShare.Result again = new MarkerRepository(RuneLiteAPI.GSON).importShare(GroupKind.TILE, tileText);
 		Assert.assertTrue(again.isChanged());
 		GroupShare.Result duplicate = tiles.importShare(GroupKind.TILE, tileText);
 		Assert.assertFalse(duplicate.isChanged());
 		Assert.assertTrue(duplicate.getMessage().contains("already marked"));
 		Assert.assertEquals(1, tiles.snapshot().getMarkers().size());
 
-		MarkerRepository fresh = new MarkerRepository();
+		MarkerRepository fresh = new MarkerRepository(RuneLiteAPI.GSON);
 		fresh.importShare(GroupKind.OBJECT, objectText);
 		ObjectMarker imported = fresh.snapshot().getObjects().get(0);
 		Assert.assertEquals("chest", imported.getLabel());

@@ -17,8 +17,6 @@ public final class GroupShare
 	static final String TYPE = "tile-and-object-overlay-group";
 	static final int VERSION = 1;
 
-	private static final Gson GSON = new Gson();
-
 	private String type;
 	private int version;
 	private GroupKind kind;
@@ -37,7 +35,7 @@ public final class GroupShare
 		return text != null && text.contains(TYPE);
 	}
 
-	public static String encode(MarkerGroup group, List<TileMarker> tiles, List<ObjectMarker> objects)
+	public static String encode(Gson gson, MarkerGroup group, List<TileMarker> tiles, List<ObjectMarker> objects)
 	{
 		GroupShare share = new GroupShare();
 		share.type = TYPE;
@@ -56,10 +54,10 @@ public final class GroupShare
 			share.tiles = new ArrayList<>();
 			share.objects = objects == null ? new ArrayList<>() : objects;
 		}
-		return GSON.toJson(share);
+		return gson.toJson(share);
 	}
 
-	public static Decoded decode(String text)
+	public static Decoded decode(Gson gson, String text)
 	{
 		if (text == null)
 		{
@@ -74,7 +72,7 @@ public final class GroupShare
 		}
 		try
 		{
-			GroupShare share = GSON.fromJson(trimmed.substring(start, end + 1), GroupShare.class);
+			GroupShare share = gson.fromJson(trimmed.substring(start, end + 1), GroupShare.class);
 			if (share == null || !TYPE.equals(share.type) || share.kind == null)
 			{
 				return Decoded.invalid();
