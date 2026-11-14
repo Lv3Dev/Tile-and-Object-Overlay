@@ -56,7 +56,6 @@ import net.runelite.client.util.ImageUtil;
 	name = "Tile & Object Markers",
 	description = "Tile indicators and persistent tile and object markers",
 	tags = {"tile", "object", "marker", "overlay", "kasi"},
-	enabledByDefault = false,
 	internalName = "tile-and-object-overlay"
 )
 public class TileObjectMarkersPlugin extends Plugin implements TileOverlayPanel.Listener
