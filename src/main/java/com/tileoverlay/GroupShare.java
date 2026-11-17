@@ -9,9 +9,6 @@ import com.google.gson.JsonSyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Text copied from a group and pasted into Import on the matching groups tab.
- */
 public final class GroupShare
 {
 	static final String TYPE = "tile-and-object-overlay-group";
