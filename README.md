@@ -7,7 +7,7 @@ Tile indicators, persistent ground markers, and persistent object markers for Ru
 ### Tile Indicators
 - Highlights your true tile, destination tile, and hovered tile.
 - Destination highlight has its own toggle (on by default).
-- All highlights support corner style, merged borders, custom colours, and border width.
+- All highlights support corner style, borders, custom colours, opacity, and border width.
 - True tile can fade out after you arrive.
 
 ### Ground Markers
@@ -35,6 +35,6 @@ Tile indicators, persistent ground markers, and persistent object markers for Ru
 - Hiding the sidebar icon does not disable the plugin.
 
 ### Other
-- Minimap markers (optional, off by default).
+- Minimap markers (off by default).
 - All markers, labels, and groups persist across logout, world hop, and client restart.
 - Drawing overlays below the player or NPCs requires the GPU plugin.
